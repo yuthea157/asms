@@ -1,0 +1,20 @@
+// Reference security rules for the Advisory Desk app.
+//
+// Firebase Auth here is anonymous sign-in only (see src/firebase.js) — it
+// exists so `request.auth != null` means "opened this app", not "is an
+// admin". The app's own role system (Admin/Manager/Officer/Company User)
+// lives entirely in application code and Firestore data, not in these
+// rules. In practice that means: any signed-in (anonymous) visitor can
+// read and write every document in the shared collection. That's an
+// acceptable tradeoff for an internal tool behind a shared URL, but it is
+// NOT a substitute for real per-role authorization if this app is ever
+// exposed to the public internet with sensitive data.
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /advisoryDeskShared/{document=**} {
+      allow read, write: if request.auth != null;
+    }
+  }
+}
