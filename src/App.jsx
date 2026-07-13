@@ -711,6 +711,49 @@ function FAB({ onClick }) {
 /* ---------------------------------------------------------------
    COMPANIES
 ----------------------------------------------------------------*/
+// Deleting a company cascades to every module that references it, directly
+// (meetingLogs, bipartiteCommittee, users) or via its advisory cycles
+// (visits, assessmentPlans, and caps hanging off those assessment plans).
+// Shared by both the Companies list form and the Company detail's edit form,
+// since either can be the last screen a user deletes from.
+function deleteCompanyCascade(ctx, id) {
+  const { data, update } = ctx;
+  const company = data.companies.find((c) => c.id === id);
+  const cycleIds = data.advisoryInfo.filter((a) => a.companyId === id).map((a) => a.id);
+  const apIds = data.assessmentPlans.filter((p) => cycleIds.includes(p.advisoryInfoId)).map((p) => p.id);
+  const counts = {
+    cycles: cycleIds.length,
+    visits: data.visits.filter((v) => cycleIds.includes(v.advisoryInfoId)).length,
+    plans: apIds.length,
+    caps: data.caps.filter((c) => apIds.includes(c.assessmentPlanId)).length,
+    meetings: data.meetingLogs.filter((m) => m.companyId === id).length,
+    committee: data.bipartiteCommittee.filter((b) => b.companyId === id).length,
+    users: data.users.filter((u) => u.companyId === id).length,
+  };
+  const total = Object.values(counts).reduce((a, b) => a + b, 0);
+  const detail = total === 0 ? "" : ` This also permanently deletes ${total} related record(s): `
+    + [
+      counts.cycles && `${counts.cycles} advisory cycle(s)`,
+      counts.visits && `${counts.visits} visit(s)`,
+      counts.plans && `${counts.plans} assessment plan(s)`,
+      counts.caps && `${counts.caps} corrective action(s)`,
+      counts.meetings && `${counts.meetings} meeting log(s)`,
+      counts.committee && `${counts.committee} bipartite committee member(s)`,
+      counts.users && `${counts.users} company user account(s)`,
+    ].filter(Boolean).join(", ") + ".";
+  if (!window.confirm(`Delete ${company?.name || "this company"}?${detail} This cannot be undone.`)) return false;
+
+  update("caps", (prev) => prev.filter((c) => !apIds.includes(c.assessmentPlanId)));
+  update("assessmentPlans", (prev) => prev.filter((p) => !cycleIds.includes(p.advisoryInfoId)));
+  update("visits", (prev) => prev.filter((v) => !cycleIds.includes(v.advisoryInfoId)));
+  update("advisoryInfo", (prev) => prev.filter((a) => a.companyId !== id));
+  update("meetingLogs", (prev) => prev.filter((m) => m.companyId !== id));
+  update("bipartiteCommittee", (prev) => prev.filter((b) => b.companyId !== id));
+  update("users", (prev) => prev.filter((u) => u.companyId !== id));
+  update("companies", (prev) => prev.filter((c) => c.id !== id));
+  return true;
+}
+
 function CompaniesView({ ctx }) {
   const { data, update } = ctx;
   const [q, setQ] = useState("");
@@ -723,10 +766,6 @@ function CompaniesView({ ctx }) {
       ? prev.map((p) => (p.id === c.id ? c : p))
       : [...prev, { ...c, id: uid("co") }]);
     setForm(null);
-  };
-  const remove = (id) => {
-    update("companies", (prev) => prev.filter((p) => p.id !== id));
-    update("advisoryInfo", (prev) => prev.filter((a) => a.companyId !== id));
   };
 
   return (
@@ -745,7 +784,7 @@ function CompaniesView({ ctx }) {
           );
         })}
       </div>
-      {form && <CompanyForm initial={form} onClose={() => setForm(null)} onSave={save} onDelete={form.id && hasPerm(ctx, "companies", "delete") ? () => { remove(form.id); setForm(null); } : null} />}
+      {form && <CompanyForm initial={form} onClose={() => setForm(null)} onSave={save} onDelete={form.id && hasPerm(ctx, "companies", "delete") ? () => { if (deleteCompanyCascade(ctx, form.id)) setForm(null); } : null} />}
     </div>
   );
 }
@@ -832,7 +871,9 @@ function CompanyDetail({ id, ctx, onBack }) {
             title={a.cycleNumber} sub={`${fmtDate(a.startDate)} → ${fmtDate(a.endDate)}`} />
         ))}
       </div>
-      {form && <CompanyForm initial={form} onClose={() => setForm(null)} onSave={(v) => { ctx.update("companies", (prev) => prev.map((p) => (p.id === v.id ? v : p))); setForm(null); }} />}
+      {form && <CompanyForm initial={form} onClose={() => setForm(null)}
+        onSave={(v) => { ctx.update("companies", (prev) => prev.map((p) => (p.id === v.id ? v : p))); setForm(null); }}
+        onDelete={hasPerm(ctx, "companies", "delete") ? () => { if (deleteCompanyCascade(ctx, id)) { setForm(null); onBack(); } } : null} />}
     </div>
   );
 }
