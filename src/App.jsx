@@ -49,6 +49,21 @@ const fmtDate = (d) => {
 };
 const todayISO = () => new Date().toISOString().slice(0, 10);
 
+// Above this width we switch from the mobile "phone card" chrome (bottom tab
+// bar, bottom sheets) to a desktop layout (persistent sidebar, centered
+// modals) instead of just stretching the same mobile layout wider.
+const DESKTOP_BP = 860;
+
+function useViewportWidth() {
+  const [width, setWidth] = useState(() => (typeof window !== "undefined" ? window.innerWidth : DESKTOP_BP));
+  useEffect(() => {
+    const onResize = () => setWidth(window.innerWidth);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+  return width;
+}
+
 // Downscale + compress an image file to a base64 JPEG so it fits comfortably
 // within the 5MB-per-key storage limit.
 function compressImageFile(file, maxDim = 1100, quality = 0.7) {
@@ -280,14 +295,22 @@ function TextInput(props) { return <input {...props} style={{ ...inputStyle, ...
 function TextArea(props) { return <textarea {...props} rows={props.rows || 3} style={{ ...inputStyle, resize: "vertical", ...(props.style || {}) }} />; }
 function Select({ children, ...props }) { return <select {...props} style={{ ...inputStyle, ...(props.style || {}) }}>{children}</select>; }
 
-function Sheet({ title, onClose, children, wide }) {
+function Sheet({ title, onClose, children }) {
+  const width = useViewportWidth();
+  const isDesktop = width >= DESKTOP_BP;
   return (
-    <div style={{ position: "fixed", inset: 0, zIndex: 60, display: "flex", alignItems: "flex-end" }}>
+    <div style={{
+      position: "fixed", inset: 0, zIndex: 60, display: "flex",
+      alignItems: isDesktop ? "center" : "flex-end", justifyContent: isDesktop ? "center" : "stretch",
+      padding: isDesktop ? 24 : 0,
+    }}>
       <div onClick={onClose} style={{ position: "absolute", inset: 0, background: "rgba(22,50,58,0.45)" }} />
       <div style={{
-        position: "relative", background: T.surface, width: "100%", maxHeight: "92vh",
-        borderRadius: "20px 20px 0 0", display: "flex", flexDirection: "column",
-        animation: "slideUp .22s ease-out", boxShadow: "0 -8px 30px rgba(0,0,0,0.18)",
+        position: "relative", background: T.surface, width: isDesktop ? "min(600px, 100%)" : "100%",
+        maxHeight: isDesktop ? "88vh" : "92vh",
+        borderRadius: isDesktop ? 20 : "20px 20px 0 0", display: "flex", flexDirection: "column",
+        animation: isDesktop ? "fadeScaleIn .18s ease-out" : "slideUp .22s ease-out",
+        boxShadow: isDesktop ? "0 20px 60px rgba(0,0,0,0.25)" : "0 -8px 30px rgba(0,0,0,0.18)",
       }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 18px", borderBottom: `1px solid ${T.border}` }}>
           <h3 style={{ margin: 0, fontSize: 17, fontFamily: "'Space Grotesk', sans-serif", color: T.ink }}>{title}</h3>
@@ -380,6 +403,8 @@ export default function App() {
   const [tab, setTab] = useState("dashboard");
   const [moreOpen, setMoreOpen] = useState(false);
   const [detail, setDetail] = useState(null); // {type:'company'|'advisory'|'assessment', id}
+  const viewportWidth = useViewportWidth();
+  const isDesktop = viewportWidth >= DESKTOP_BP;
 
   if (!ready) {
     return (
@@ -445,52 +470,43 @@ export default function App() {
   else Body = <RestrictedView goto={() => { setTab("dashboard"); setDetail(null); }} />;
 
   const activeMore = MORE_NAV.some((m) => m.key === tab);
+  const roleLabel = ROLE_LABEL[role.role]?.split(" ")[0] || role.role;
+
+  if (isDesktop) {
+    return (
+      <Shell wide>
+        <div style={{ display: "flex", flex: 1, minHeight: "100vh" }}>
+          <SideNav
+            items={[...NAV, ...MORE_NAV]}
+            activeKey={detail ? null : tab}
+            onSelect={(k) => { setTab(k); setDetail(null); }}
+            roleLabel={roleLabel}
+            userName={role.name}
+            onSignOut={() => setRole(null)}
+          />
+          <div style={{ flex: 1, overflowY: "auto", minWidth: 0 }}>
+            <div style={{ maxWidth: 820, margin: "0 auto", padding: "12px 0 40px" }}>{Body}</div>
+          </div>
+        </div>
+      </Shell>
+    );
+  }
 
   return (
     <Shell>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 18px", borderBottom: `1px solid ${T.border}`, background: T.ink }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <div style={{ width: 26, height: 26, borderRadius: 7, background: T.accent, display: "grid", placeItems: "center" }}>
-            <ShieldAlert size={15} color="#fff" />
-          </div>
-          <span style={{ color: "#fff", fontFamily: "'Space Grotesk', sans-serif", fontSize: 15.5 }}>Advisory Desk</span>
-        </div>
-        <button onClick={() => setRole(null)} style={{ background: "rgba(255,255,255,0.1)", border: "none", color: "#fff", fontSize: 11.5, fontWeight: 700, padding: "6px 10px", borderRadius: 999, cursor: "pointer" }}>
-          {ROLE_LABEL[role.role]?.split(" ")[0] || role.role} · {role.name.split(" ")[0]}
-        </button>
-      </div>
-
+      <TopBar roleLabel={roleLabel} userName={role.name} onSignOut={() => setRole(null)} />
       <div style={{ flex: 1, overflowY: "auto", paddingBottom: 86 }}>{Body}</div>
-
-      <nav style={{
-        position: "sticky", bottom: 0, background: T.surface, borderTop: `1px solid ${T.border}`,
-        display: "flex", padding: "6px 4px calc(6px + env(safe-area-inset-bottom))", zIndex: 40,
-      }}>
-        {NAV.map((n) => (
-          <NavBtn key={n.key} icon={n.icon} label={n.label} active={tab === n.key && !detail} onClick={() => { setTab(n.key); setDetail(null); setMoreOpen(false); }} />
-        ))}
-        <NavBtn icon={MoreHorizontal} label="More" active={activeMore || moreOpen} onClick={() => setMoreOpen((v) => !v)} />
-      </nav>
-
-      {moreOpen && (
-        <div style={{ position: "fixed", inset: 0, zIndex: 50 }} onClick={() => setMoreOpen(false)}>
-          <div style={{ position: "absolute", inset: 0, background: "rgba(22,50,58,0.35)" }} />
-          <div onClick={(e) => e.stopPropagation()} style={{
-            position: "absolute", bottom: 78, right: 12, background: T.surface, borderRadius: 14,
-            boxShadow: "0 10px 30px rgba(0,0,0,0.2)", overflow: "hidden", width: 220, border: `1px solid ${T.border}`,
-          }}>
-            {MORE_NAV.map((m) => (
-              <button key={m.key} onClick={() => { setTab(m.key); setDetail(null); setMoreOpen(false); }} style={{
-                width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "13px 14px",
-                background: tab === m.key ? T.accentSoft : "transparent", border: "none", borderBottom: `1px solid ${T.border}`,
-                fontSize: 14.5, color: T.ink, cursor: "pointer", textAlign: "left", fontFamily: "inherit", fontWeight: 600,
-              }}>
-                <m.icon size={17} color={tab === m.key ? T.accentDark : T.ink2} /> {m.label}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
+      <BottomNav
+        items={NAV}
+        moreItems={MORE_NAV}
+        tab={tab}
+        detail={detail}
+        moreOpen={moreOpen}
+        activeMore={activeMore}
+        onSelect={(k) => { setTab(k); setDetail(null); setMoreOpen(false); }}
+        onToggleMore={() => setMoreOpen((v) => !v)}
+        onCloseMore={() => setMoreOpen(false)}
+      />
     </Shell>
   );
 }
@@ -507,18 +523,119 @@ function NavBtn({ icon: Icon, label, active, onClick }) {
   );
 }
 
-function Shell({ children }) {
+// Top bar used by the mobile ("phone card") layout only — the desktop
+// layout puts branding + account into SideNav instead, since there's no
+// need to economize on vertical space there.
+function TopBar({ roleLabel, userName, onSignOut }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 18px", borderBottom: `1px solid ${T.border}`, background: T.ink }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <div style={{ width: 26, height: 26, borderRadius: 7, background: T.accent, display: "grid", placeItems: "center" }}>
+          <ShieldAlert size={15} color="#fff" />
+        </div>
+        <span style={{ color: "#fff", fontFamily: "'Space Grotesk', sans-serif", fontSize: 15.5 }}>Advisory Desk</span>
+      </div>
+      <button onClick={onSignOut} style={{ background: "rgba(255,255,255,0.1)", border: "none", color: "#fff", fontSize: 11.5, fontWeight: 700, padding: "6px 10px", borderRadius: 999, cursor: "pointer" }}>
+        {roleLabel?.split(" ")[0] || ""} · {userName.split(" ")[0]}
+      </button>
+    </div>
+  );
+}
+
+// Bottom tab bar + its "More" overflow popover — the mobile navigation
+// pattern. `items` are the always-visible tabs; `moreItems` collapse behind
+// the overflow button since a phone-width bar can't fit every section.
+function BottomNav({ items, moreItems, tab, detail, moreOpen, activeMore, onSelect, onToggleMore, onCloseMore }) {
+  return (
+    <>
+      <nav style={{
+        position: "sticky", bottom: 0, background: T.surface, borderTop: `1px solid ${T.border}`,
+        display: "flex", padding: "6px 4px calc(6px + env(safe-area-inset-bottom))", zIndex: 40,
+      }}>
+        {items.map((n) => (
+          <NavBtn key={n.key} icon={n.icon} label={n.label} active={tab === n.key && !detail} onClick={() => onSelect(n.key)} />
+        ))}
+        <NavBtn icon={MoreHorizontal} label="More" active={activeMore || moreOpen} onClick={onToggleMore} />
+      </nav>
+
+      {moreOpen && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 50 }} onClick={onCloseMore}>
+          <div style={{ position: "absolute", inset: 0, background: "rgba(22,50,58,0.35)" }} />
+          <div onClick={(e) => e.stopPropagation()} style={{
+            position: "absolute", bottom: 78, right: 12, background: T.surface, borderRadius: 14,
+            boxShadow: "0 10px 30px rgba(0,0,0,0.2)", overflow: "hidden", width: 220, border: `1px solid ${T.border}`,
+          }}>
+            {moreItems.map((m) => (
+              <button key={m.key} onClick={() => onSelect(m.key)} style={{
+                width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "13px 14px",
+                background: tab === m.key ? T.accentSoft : "transparent", border: "none", borderBottom: `1px solid ${T.border}`,
+                fontSize: 14.5, color: T.ink, cursor: "pointer", textAlign: "left", fontFamily: "inherit", fontWeight: 600,
+              }}>
+                <m.icon size={17} color={tab === m.key ? T.accentDark : T.ink2} /> {m.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+// Persistent desktop sidebar — replaces TopBar + BottomNav above the
+// DESKTOP_BP breakpoint. There's room to show every nav item flat (no
+// "More" overflow needed) since a sidebar isn't fighting for horizontal
+// space the way a phone-width bottom bar is.
+function SideNav({ items, activeKey, onSelect, roleLabel, userName, onSignOut }) {
   return (
     <div style={{
-      maxWidth: 460, margin: "0 auto", minHeight: "100vh", background: T.bg,
+      width: 236, flexShrink: 0, background: T.ink, display: "flex", flexDirection: "column",
+      minHeight: "100vh", position: "sticky", top: 0, alignSelf: "flex-start",
+    }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "22px 18px 18px" }}>
+        <div style={{ width: 30, height: 30, borderRadius: 8, background: T.accent, display: "grid", placeItems: "center", flexShrink: 0 }}>
+          <ShieldAlert size={17} color="#fff" />
+        </div>
+        <span style={{ color: "#fff", fontFamily: "'Space Grotesk', sans-serif", fontSize: 16.5 }}>Advisory Desk</span>
+      </div>
+      <div style={{ flex: 1, overflowY: "auto", padding: "6px 10px" }}>
+        {items.map((n) => (
+          <button key={n.key} onClick={() => onSelect(n.key)} style={{
+            width: "100%", display: "flex", alignItems: "center", gap: 11, padding: "10px 12px", marginBottom: 2,
+            borderRadius: 10, border: "none", cursor: "pointer", textAlign: "left", fontFamily: "inherit", fontSize: 14, fontWeight: 700,
+            background: activeKey === n.key ? "rgba(255,255,255,0.12)" : "transparent",
+            color: activeKey === n.key ? "#fff" : "#9DB3AB",
+          }}>
+            <n.icon size={18} strokeWidth={activeKey === n.key ? 2.3 : 1.9} />
+            {n.label}
+          </button>
+        ))}
+      </div>
+      <div style={{ padding: 14, borderTop: "1px solid rgba(255,255,255,0.1)" }}>
+        <button onClick={onSignOut} style={{
+          width: "100%", background: "rgba(255,255,255,0.08)", border: "none", color: "#fff",
+          fontSize: 12.5, fontWeight: 700, padding: "9px 10px", borderRadius: 10, cursor: "pointer", textAlign: "left", fontFamily: "inherit",
+        }}>
+          {roleLabel?.split(" ")[0] || ""} · {userName.split(" ")[0]}
+          <div style={{ fontSize: 10.5, fontWeight: 600, color: "#9DB3AB", marginTop: 2 }}>Tap to sign out</div>
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function Shell({ children, wide }) {
+  return (
+    <div style={{
+      maxWidth: wide ? "none" : 460, margin: "0 auto", minHeight: "100vh", background: T.bg,
       display: "flex", flexDirection: "column", fontFamily: "'Inter', -apple-system, sans-serif",
-      position: "relative", boxShadow: "0 0 40px rgba(0,0,0,0.06)",
+      position: "relative", boxShadow: wide ? "none" : "0 0 40px rgba(0,0,0,0.06)",
     }}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700;800&display=swap');
         * { box-sizing: border-box; }
         body { margin: 0; }
         @keyframes slideUp { from { transform: translateY(24px); opacity: 0.4 } to { transform: translateY(0); opacity: 1 } }
+        @keyframes fadeScaleIn { from { transform: scale(0.96); opacity: 0.4 } to { transform: scale(1); opacity: 1 } }
         input:focus, select:focus, textarea:focus { border-color: ${T.accent} !important; box-shadow: 0 0 0 3px ${T.accentSoft}; }
         ::-webkit-scrollbar { width: 0; height: 0; }
       `}</style>
