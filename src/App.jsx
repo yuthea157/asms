@@ -1,11 +1,13 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import * as XLSX from "xlsx";
+import logo from "./assets/logo.jpg";
 import {
   Building2, CalendarClock, ClipboardList, ShieldAlert, Users as UsersIcon,
   FileBarChart, Plus, X, ChevronRight, Search, Clock, AlertTriangle,
   CheckCircle2, Circle, MoreHorizontal, ArrowLeft, Phone, Mail, MapPin,
   Trash2, Pencil, TrendingUp, FileText, LogIn, Paperclip, Image as ImageIcon,
-  Download, Printer, Eye, EyeOff, Lock, MessageSquare, Scale, Filter, BookOpen
+  Download, Printer, Eye, EyeOff, Lock, MessageSquare, Scale, Filter, BookOpen,
+  Upload, Settings, Database, GraduationCap, Megaphone, FolderOpen, ShieldCheck
 } from "lucide-react";
 
 /* ---------------------------------------------------------------
@@ -34,10 +36,30 @@ const T = {
   greenSoft: "#E7F2EB",
   blue: "#3A6EA5",
   blueSoft: "#E7EEF5",
+  purple: "#7A5AA8",
+  purpleSoft: "#EFE8F5",
+  cyan: "#2E8FA3",
+  cyanSoft: "#E4F2F5",
+  rose: "#B0507A",
+  roseSoft: "#F7E7EF",
+  brown: "#8B6B4A",
+  brownSoft: "#F1EAE1",
+  slate: "#5B6B76",
+  slateSoft: "#E7ECEE",
   bg: "#F4F6F5",
   surface: "#FFFFFF",
   border: "#DCE3E1",
   muted: "#7C9089",
+};
+
+// One color per module, reused everywhere that module shows up (nav icon,
+// page header icon, empty-state icon) so its identity stays recognizable
+// throughout the app instead of everything being the same monochrome ink.
+const MODULE_COLORS = {
+  dashboard: T.accent, companies: T.blue, visits: T.green, caps: T.amber,
+  advisory: T.purple, assessment: T.cyan, meetings: T.rose, committee: T.blue,
+  caprecs: T.amber, training: T.green, grievance: T.red, documents: T.brown,
+  users: T.slate, reports: T.cyan, sysadmin: T.slate,
 };
 
 const uid = (p = "id") => `${p}_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
@@ -141,7 +163,35 @@ function seedData() {
       { id: uid("cr"), ncNo: "NC-STD-01", area: "Fire Safety", cluster: "OSH", rootCause: "Emergency exits obstructed or locked during working hours.", proposedCA: "Clear all exit routes, install illuminated exit signage, and conduct quarterly fire drills." },
       { id: uid("cr"), ncNo: "NC-STD-02", area: "Overtime Consent", cluster: "Working Time", rootCause: "Workers not given voluntary, documented consent before overtime.", proposedCA: "Introduce a written overtime consent form and log signed copies for each shift." },
     ],
+    trainings: [
+      {
+        id: uid("tr"), companyId, topic: "Fire Safety & Emergency Response", trainer: "Vichet Ros",
+        date: "2026-03-05", startTime: "13:00", endTime: "16:00", deliveryMode: "Onsite", status: "Completed",
+        location: "Meridian Apparel Co. — Training Hall", participants: ["Sokha Chan", "Ratanak Sok", "Floor Supervisor"],
+        notes: "Covered evacuation routes, extinguisher use, and assembly points.",
+      },
+    ],
+    grievances: [
+      {
+        id: uid("gr"), companyId, dateReported: "2026-03-12", category: "Working Conditions",
+        channel: "Suggestion Box", description: "Workers report inadequate ventilation on the second floor sewing line during hot season.",
+        reportedBy: "", status: "Under Investigation", assignedTo: "Vichet Ros", resolution: "", resolvedDate: "",
+      },
+    ],
+    policies: [
+      {
+        id: uid("pol"), companyId, code: "POL-01", name: "Code of Conduct", version: "v1.0",
+        releasedDate: "2026-01-15", type: "Policy", remark: "Covers workplace ethics, anti-harassment, and grievance escalation.",
+      },
+    ],
+    licenses: [
+      {
+        id: uid("lic"), companyId, docNo: "LIC-01", name: "Fire Safety Certificate", issuedBy: "Ministry of Interior",
+        issueDate: "2025-06-01", expiredDate: "2026-06-01", status: "Valid",
+      },
+    ],
     permissions: defaultPermissions(),
+    systemSettings: { timeZone: "UTC" },
   };
 }
 
@@ -156,12 +206,16 @@ const PERMISSION_MODULES = [
   { key: "companies", label: "Companies" },
   { key: "advisory", label: "Advisory Cycles" },
   { key: "visits", label: "Advisory Visits" },
-  { key: "assessment", label: "Assessment Plans" },
-  { key: "caps", label: "Actions (CAP)" },
+  { key: "assessment", label: "Assessment/Audit" },
+  { key: "caps", label: "Improvement Plan (CAP)" },
   { key: "meetings", label: "Meeting Logs" },
   { key: "committee", label: "Bipartite Committee" },
   { key: "caprecs", label: "CAP Recommendations" },
+  { key: "training", label: "Training" },
+  { key: "grievance", label: "Grievance Mechanism" },
+  { key: "documents", label: "Documentation" },
   { key: "reports", label: "Reports" },
+  { key: "sysadmin", label: "System Administration" },
 ];
 const CONFIGURABLE_ROLES = ["manager", "officer", "user"];
 
@@ -173,15 +227,18 @@ function defaultPermissions() {
   return {
     manager: {
       companies: full, advisory: full, visits: full, assessment: full, caps: full,
-      meetings: editOnly, committee: editOnly, caprecs: editOnly, reports: viewOnly,
+      meetings: editOnly, committee: editOnly, caprecs: editOnly, reports: viewOnly, sysadmin: none,
+      training: editOnly, grievance: editOnly, documents: editOnly,
     },
     officer: {
       companies: viewOnly, advisory: viewOnly, visits: editOnly, assessment: viewOnly, caps: editOnly,
-      meetings: editOnly, committee: viewOnly, caprecs: viewOnly, reports: viewOnly,
+      meetings: editOnly, committee: viewOnly, caprecs: viewOnly, reports: viewOnly, sysadmin: none,
+      training: editOnly, grievance: editOnly, documents: editOnly,
     },
     user: {
       companies: viewOnly, advisory: viewOnly, visits: viewOnly, assessment: viewOnly, caps: viewOnly,
-      meetings: viewOnly, committee: viewOnly, caprecs: none, reports: viewOnly,
+      meetings: viewOnly, committee: viewOnly, caprecs: none, reports: viewOnly, sysadmin: none,
+      training: viewOnly, grievance: viewOnly, documents: viewOnly,
     },
   };
 }
@@ -201,12 +258,49 @@ function inScope(ctx, companyId) {
 /* ---------------------------------------------------------------
    STORAGE HOOK
 ----------------------------------------------------------------*/
-const KEYS = ["companies", "advisoryInfo", "visits", "assessmentPlans", "users", "caps", "meetingLogs", "bipartiteCommittee", "capRecommendations", "permissions"];
+const KEYS = ["companies", "advisoryInfo", "visits", "assessmentPlans", "users", "caps", "meetingLogs", "bipartiteCommittee", "capRecommendations", "permissions", "systemSettings", "trainings", "grievances", "policies", "licenses"];
 
 const CAP_CLUSTERS = [
   "Child Labor", "Forced Labor", "Discrimination and Harassment", "FoA & CBA",
   "Employment Contract and HR", "Working Time", "Wages and Benefits", "OSH", "Others",
 ];
+
+const TRAINING_DELIVERY_MODES = ["Onsite", "Online", "Hybrid"];
+const TRAINING_STATUSES = ["Scheduled", "Completed", "Cancelled"];
+
+const GRIEVANCE_CATEGORIES = [
+  "Wages & Benefits", "Working Conditions", "Harassment & Discrimination",
+  "Health & Safety", "Discipline & Termination", "Freedom of Association", "Other",
+];
+const GRIEVANCE_CHANNELS = ["Suggestion Box", "Hotline", "In-Person", "Bipartite Committee", "Email", "Other"];
+const GRIEVANCE_STATUSES = ["Open", "Under Investigation", "Resolved", "Closed"];
+
+const DOC_TYPES = ["Policy", "Procedure", "Guideline", "Form", "Other"];
+const LICENSE_STATUSES = ["Valid", "Renewed", "Cancelled"];
+const LICENSE_RENEWAL_WINDOW_DAYS = 30;
+
+function addDays(dateStr, days) {
+  if (!dateStr) return "";
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  dt.setUTCDate(dt.getUTCDate() + days);
+  return dt.toISOString().slice(0, 10);
+}
+// Renew date is always derived from Expired Date, never stored, so it can
+// never go stale if Expired Date is edited later.
+function renewDateOf(lic) {
+  return addDays(lic.expiredDate, -LICENSE_RENEWAL_WINDOW_DAYS);
+}
+function licenseStatusOf(lic) {
+  if (lic.status === "Renewed" || lic.status === "Cancelled") return lic.status;
+  if (!lic.expiredDate) return "Valid";
+  if (lic.expiredDate < todayISO()) return "Expired";
+  if (renewDateOf(lic) <= todayISO()) return "Expiring Soon";
+  return "Valid";
+}
+function licenseTone(status) {
+  return status === "Expired" ? "red" : status === "Expiring Soon" ? "amber" : status === "Cancelled" ? "muted" : "green";
+}
 
 function useStore() {
   const [data, setData] = useState(null);
@@ -267,11 +361,33 @@ function Pill({ children, tone = "muted" }) {
     red: { bg: T.redSoft, fg: T.red },
     green: { bg: T.greenSoft, fg: T.green },
     blue: { bg: T.blueSoft, fg: T.blue },
+    purple: { bg: T.purpleSoft, fg: T.purple },
+    cyan: { bg: T.cyanSoft, fg: T.cyan },
+    rose: { bg: T.roseSoft, fg: T.rose },
+    brown: { bg: T.brownSoft, fg: T.brown },
+    slate: { bg: T.slateSoft, fg: T.slate },
   };
   const c = tones[tone] || tones.muted;
   return (
     <span style={{ background: c.bg, color: c.fg, fontSize: 11.5, fontWeight: 700, padding: "3px 9px", borderRadius: 999, letterSpacing: 0.2 }}>
       {children}
+    </span>
+  );
+}
+
+// A colored circular backdrop behind an icon, used everywhere a module's
+// icon appears (nav, header, empty states) so it reads as a colorful badge
+// rather than a flat monochrome glyph. The ".icon-chip" class picks up the
+// hover/press motion defined once in Shell's injected <style>.
+function IconChip({ icon: Icon, color = T.accent, size = 34, iconSize = 17, strokeWidth, background, style }) {
+  return (
+    <span className="icon-chip" style={{
+      display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+      width: size, height: size, borderRadius: size * 0.32,
+      background: background !== undefined ? background : `${color}1A`,
+      ...style,
+    }}>
+      <Icon size={iconSize} color={color} strokeWidth={strokeWidth} />
     </span>
   );
 }
@@ -342,10 +458,10 @@ function Btn({ children, onClick, variant = "primary", full, type = "button", sm
   );
 }
 
-function EmptyState({ icon: Icon, title, hint }) {
+function EmptyState({ icon: Icon, title, hint, color = T.muted }) {
   return (
     <div style={{ textAlign: "center", padding: "48px 20px", color: T.muted }}>
-      <Icon size={30} strokeWidth={1.5} style={{ marginBottom: 10 }} />
+      <IconChip icon={Icon} color={color} size={54} iconSize={26} strokeWidth={1.6} style={{ margin: "0 auto 12px" }} />
       <div style={{ fontWeight: 700, color: T.ink2, fontSize: 15 }}>{title}</div>
       <div style={{ fontSize: 13, marginTop: 4 }}>{hint}</div>
     </div>
@@ -363,12 +479,15 @@ function RestrictedView({ goto }) {
   );
 }
 
-function Header({ title, subtitle, action }) {
+function Header({ title, subtitle, action, icon, color = T.accent }) {
   return (
     <div style={{ padding: "18px 18px 4px", display: "flex", alignItems: "flex-start", justifyContent: "space-between" }}>
-      <div>
-        <h1 style={{ margin: 0, fontFamily: "'Space Grotesk', sans-serif", fontSize: 23, color: T.ink }}>{title}</h1>
-        {subtitle && <div style={{ fontSize: 13, color: T.muted, marginTop: 2 }}>{subtitle}</div>}
+      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+        {icon && <IconChip icon={icon} color={color} size={40} iconSize={20} strokeWidth={2} />}
+        <div>
+          <h1 style={{ margin: 0, fontFamily: "'Space Grotesk', sans-serif", fontSize: 23, color: T.ink }}>{title}</h1>
+          {subtitle && <div style={{ fontSize: 13, color: T.muted, marginTop: 2 }}>{subtitle}</div>}
+        </div>
       </div>
       {action}
     </div>
@@ -392,6 +511,12 @@ function capStatusOf(cap) {
 }
 function capTone(status) {
   return status === "Completed" ? "green" : status === "Overdue" ? "red" : status === "In Progress" ? "blue" : "amber";
+}
+function trainingTone(status) {
+  return status === "Completed" ? "green" : status === "Cancelled" ? "muted" : "blue";
+}
+function grievanceTone(status) {
+  return status === "Resolved" ? "green" : status === "Closed" ? "muted" : status === "Under Investigation" ? "blue" : "amber";
 }
 
 /* ---------------------------------------------------------------
@@ -429,19 +554,23 @@ export default function App() {
   const ctx = { data, update, role, setDetail, scopeCompanyId, visibleCompanies };
 
   const NAV = [
-    { key: "dashboard", label: "Overview", icon: TrendingUp },
-    { key: "companies", label: "Companies", icon: Building2, perm: "companies" },
-    { key: "visits", label: "Visits", icon: CalendarClock, perm: "visits" },
-    { key: "caps", label: "Actions", icon: ShieldAlert, perm: "caps" },
+    { key: "dashboard", label: "Overview", icon: TrendingUp, color: MODULE_COLORS.dashboard },
+    { key: "companies", label: "Companies", icon: Building2, perm: "companies", color: MODULE_COLORS.companies },
+    { key: "visits", label: "Advisory Visits", icon: CalendarClock, perm: "visits", color: MODULE_COLORS.visits },
+    { key: "caps", label: "Improvement Plan", icon: ShieldAlert, perm: "caps", color: MODULE_COLORS.caps },
   ].filter((n) => !n.perm || hasPerm(ctx, n.perm, "view"));
   const MORE_NAV = [
-    { key: "advisory", label: "Advisory Cycles", icon: ClipboardList, perm: "advisory" },
-    { key: "assessment", label: "Assessment Plans", icon: FileText, perm: "assessment" },
-    { key: "meetings", label: "Meeting Logs", icon: MessageSquare, perm: "meetings" },
-    { key: "committee", label: "Bipartite Committee", icon: Scale, perm: "committee" },
-    { key: "caprecs", label: "CAP Recommendations", icon: BookOpen, perm: "caprecs" },
-    { key: "users", label: "User Accounts", icon: UsersIcon, adminOnly: true },
-    { key: "reports", label: "Reports", icon: FileBarChart, perm: "reports" },
+    { key: "advisory", label: "Advisory Cycles", icon: ClipboardList, perm: "advisory", color: MODULE_COLORS.advisory },
+    { key: "assessment", label: "Assessment/Audit", icon: FileText, perm: "assessment", color: MODULE_COLORS.assessment },
+    { key: "meetings", label: "Meeting Logs", icon: MessageSquare, perm: "meetings", color: MODULE_COLORS.meetings },
+    { key: "committee", label: "Bipartite Committee", icon: Scale, perm: "committee", color: MODULE_COLORS.committee },
+    { key: "caprecs", label: "CAP Recommendations", icon: BookOpen, perm: "caprecs", color: MODULE_COLORS.caprecs },
+    { key: "training", label: "Training", icon: GraduationCap, perm: "training", color: MODULE_COLORS.training },
+    { key: "grievance", label: "Grievance Mechanism", icon: Megaphone, perm: "grievance", color: MODULE_COLORS.grievance },
+    { key: "documents", label: "Documentation", icon: FolderOpen, perm: "documents", color: MODULE_COLORS.documents },
+    { key: "users", label: "User Accounts", icon: UsersIcon, adminOnly: true, color: MODULE_COLORS.users },
+    { key: "reports", label: "Reports", icon: FileBarChart, perm: "reports", color: MODULE_COLORS.reports },
+    { key: "sysadmin", label: "System Administration", icon: Settings, perm: "sysadmin", color: MODULE_COLORS.sysadmin },
   ].filter((n) => (n.adminOnly ? role.role === "admin" : !n.perm || hasPerm(ctx, n.perm, "view")));
 
   let Body = null;
@@ -465,8 +594,12 @@ export default function App() {
   else if (tab === "meetings" && hasPerm(ctx, "meetings", "view")) Body = <MeetingLogsView ctx={ctx} />;
   else if (tab === "committee" && hasPerm(ctx, "committee", "view")) Body = <BipartiteCommitteeView ctx={ctx} />;
   else if (tab === "caprecs" && hasPerm(ctx, "caprecs", "view")) Body = <CapRecommendationsView ctx={ctx} />;
+  else if (tab === "training" && hasPerm(ctx, "training", "view")) Body = <TrainingView ctx={ctx} />;
+  else if (tab === "grievance" && hasPerm(ctx, "grievance", "view")) Body = <GrievanceView ctx={ctx} />;
+  else if (tab === "documents" && hasPerm(ctx, "documents", "view")) Body = <DocumentationView ctx={ctx} />;
   else if (tab === "users" && role.role === "admin") Body = <UsersView ctx={ctx} />;
   else if (tab === "reports" && hasPerm(ctx, "reports", "view")) Body = <ReportsView ctx={ctx} />;
+  else if (tab === "sysadmin" && hasPerm(ctx, "sysadmin", "view")) Body = <SystemAdministrationView ctx={ctx} />;
   else Body = <RestrictedView goto={() => { setTab("dashboard"); setDetail(null); }} />;
 
   const activeMore = MORE_NAV.some((m) => m.key === tab);
@@ -480,12 +613,10 @@ export default function App() {
             items={[...NAV, ...MORE_NAV]}
             activeKey={detail ? null : tab}
             onSelect={(k) => { setTab(k); setDetail(null); }}
-            roleLabel={roleLabel}
-            userName={role.name}
-            onSignOut={() => setRole(null)}
           />
           <div style={{ flex: 1, overflowY: "auto", minWidth: 0 }}>
-            <div style={{ maxWidth: 820, margin: "0 auto", padding: "12px 0 40px" }}>{Body}</div>
+            <AccountCorner roleLabel={roleLabel} userName={role.name} onSignOut={() => setRole(null)} />
+            <div style={{ maxWidth: 820, margin: "0 auto", padding: "0 0 40px" }}>{Body}</div>
           </div>
         </div>
       </Shell>
@@ -511,32 +642,52 @@ export default function App() {
   );
 }
 
-function NavBtn({ icon: Icon, label, active, onClick }) {
+function NavBtn({ icon: Icon, label, active, color = T.accent, onClick }) {
   return (
     <button onClick={onClick} style={{
       flex: 1, background: "none", border: "none", display: "flex", flexDirection: "column",
-      alignItems: "center", gap: 3, padding: "7px 2px", cursor: "pointer", fontFamily: "inherit",
+      alignItems: "center", gap: 2, padding: "5px 2px", cursor: "pointer", fontFamily: "inherit",
     }}>
-      <Icon size={20} color={active ? T.accent : T.muted} strokeWidth={active ? 2.4 : 1.9} />
-      <span style={{ fontSize: 10.5, fontWeight: 700, color: active ? T.accent : T.muted }}>{label}</span>
+      <IconChip icon={Icon} color={active ? color : T.muted} size={30} iconSize={17} strokeWidth={active ? 2.3 : 1.9} />
+      <span style={{ fontSize: 10.5, fontWeight: 700, color: active ? color : T.muted }}>{label}</span>
     </button>
   );
 }
 
 // Top bar used by the mobile ("phone card") layout only — the desktop
-// layout puts branding + account into SideNav instead, since there's no
-// need to economize on vertical space there.
+// layout uses AccountCorner (below) for the account/sign-out control instead,
+// since SideNav's own header is branding-only there.
 function TopBar({ roleLabel, userName, onSignOut }) {
   return (
     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 18px", borderBottom: `1px solid ${T.border}`, background: T.ink }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-        <div style={{ width: 26, height: 26, borderRadius: 7, background: T.accent, display: "grid", placeItems: "center" }}>
-          <ShieldAlert size={15} color="#fff" />
+      <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+        <div style={{ width: 26, height: 26, borderRadius: 7, background: "#fff", display: "grid", placeItems: "center", flexShrink: 0, overflow: "hidden" }}>
+          <img src={logo} alt="Logo" style={{ width: "100%", height: "100%", objectFit: "contain" }} />
         </div>
-        <span style={{ color: "#fff", fontFamily: "'Space Grotesk', sans-serif", fontSize: 15.5 }}>Advisory Desk</span>
+        <span style={{
+          color: "#fff", fontFamily: "'Space Grotesk', sans-serif", fontSize: 13.5,
+          whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+        }}>Advisory Management System</span>
       </div>
-      <button onClick={onSignOut} style={{ background: "rgba(255,255,255,0.1)", border: "none", color: "#fff", fontSize: 11.5, fontWeight: 700, padding: "6px 10px", borderRadius: 999, cursor: "pointer" }}>
+      <button onClick={onSignOut} style={{ background: "rgba(255,255,255,0.1)", border: "none", color: "#fff", fontSize: 11.5, fontWeight: 700, padding: "6px 10px", borderRadius: 999, cursor: "pointer", flexShrink: 0 }}>
         {roleLabel?.split(" ")[0] || ""} · {userName.split(" ")[0]}
+      </button>
+    </div>
+  );
+}
+
+// Account/sign-out control for the desktop layout — pinned to the top-right
+// corner of the scrollable content pane (SideNav's own header is branding-only).
+function AccountCorner({ roleLabel, userName, onSignOut }) {
+  return (
+    <div style={{ position: "sticky", top: 0, zIndex: 20, display: "flex", justifyContent: "flex-end", padding: "16px 24px 0" }}>
+      <button onClick={onSignOut} style={{
+        background: T.surface, border: `1px solid ${T.border}`, color: T.ink2,
+        fontSize: 12, fontWeight: 700, padding: "8px 14px", borderRadius: 999, cursor: "pointer",
+        fontFamily: "inherit", textAlign: "right", boxShadow: "0 2px 8px rgba(22,50,58,0.08)",
+      }}>
+        {roleLabel?.split(" ")[0] || ""} · {userName.split(" ")[0]}
+        <div style={{ fontSize: 10, fontWeight: 600, color: T.muted, marginTop: 1 }}>Tap to sign out</div>
       </button>
     </div>
   );
@@ -553,9 +704,9 @@ function BottomNav({ items, moreItems, tab, detail, moreOpen, activeMore, onSele
         display: "flex", padding: "6px 4px calc(6px + env(safe-area-inset-bottom))", zIndex: 40,
       }}>
         {items.map((n) => (
-          <NavBtn key={n.key} icon={n.icon} label={n.label} active={tab === n.key && !detail} onClick={() => onSelect(n.key)} />
+          <NavBtn key={n.key} icon={n.icon} label={n.label} color={n.color} active={tab === n.key && !detail} onClick={() => onSelect(n.key)} />
         ))}
-        <NavBtn icon={MoreHorizontal} label="More" active={activeMore || moreOpen} onClick={onToggleMore} />
+        <NavBtn icon={MoreHorizontal} label="More" color={T.ink2} active={activeMore || moreOpen} onClick={onToggleMore} />
       </nav>
 
       {moreOpen && (
@@ -567,11 +718,12 @@ function BottomNav({ items, moreItems, tab, detail, moreOpen, activeMore, onSele
           }}>
             {moreItems.map((m) => (
               <button key={m.key} onClick={() => onSelect(m.key)} style={{
-                width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "13px 14px",
-                background: tab === m.key ? T.accentSoft : "transparent", border: "none", borderBottom: `1px solid ${T.border}`,
+                width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "10px 14px",
+                background: tab === m.key ? `${m.color || T.accent}14` : "transparent", border: "none", borderBottom: `1px solid ${T.border}`,
                 fontSize: 14.5, color: T.ink, cursor: "pointer", textAlign: "left", fontFamily: "inherit", fontWeight: 600,
               }}>
-                <m.icon size={17} color={tab === m.key ? T.accentDark : T.ink2} /> {m.label}
+                <IconChip icon={m.icon} color={m.color || T.accent} size={30} iconSize={16} />
+                {m.label}
               </button>
             ))}
           </div>
@@ -585,39 +737,32 @@ function BottomNav({ items, moreItems, tab, detail, moreOpen, activeMore, onSele
 // DESKTOP_BP breakpoint. There's room to show every nav item flat (no
 // "More" overflow needed) since a sidebar isn't fighting for horizontal
 // space the way a phone-width bottom bar is.
-function SideNav({ items, activeKey, onSelect, roleLabel, userName, onSignOut }) {
+function SideNav({ items, activeKey, onSelect }) {
   return (
     <div style={{
       width: 236, flexShrink: 0, background: T.ink, display: "flex", flexDirection: "column",
       minHeight: "100vh", position: "sticky", top: 0, alignSelf: "flex-start",
     }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "22px 18px 18px" }}>
-        <div style={{ width: 30, height: 30, borderRadius: 8, background: T.accent, display: "grid", placeItems: "center", flexShrink: 0 }}>
-          <ShieldAlert size={17} color="#fff" />
+        <div style={{ width: 30, height: 30, borderRadius: 8, background: "#fff", display: "grid", placeItems: "center", flexShrink: 0, overflow: "hidden" }}>
+          <img src={logo} alt="Logo" style={{ width: "100%", height: "100%", objectFit: "contain" }} />
         </div>
-        <span style={{ color: "#fff", fontFamily: "'Space Grotesk', sans-serif", fontSize: 16.5 }}>Advisory Desk</span>
+        <span style={{ color: "#fff", fontFamily: "'Space Grotesk', sans-serif", fontSize: 14.5, lineHeight: 1.25 }}>Advisory Management System</span>
       </div>
-      <div style={{ flex: 1, overflowY: "auto", padding: "6px 10px" }}>
+      <div style={{ flex: 1, overflowY: "auto", padding: "6px 10px 14px" }}>
         {items.map((n) => (
           <button key={n.key} onClick={() => onSelect(n.key)} style={{
-            width: "100%", display: "flex", alignItems: "center", gap: 11, padding: "10px 12px", marginBottom: 2,
+            width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", marginBottom: 2,
             borderRadius: 10, border: "none", cursor: "pointer", textAlign: "left", fontFamily: "inherit", fontSize: 14, fontWeight: 700,
             background: activeKey === n.key ? "rgba(255,255,255,0.12)" : "transparent",
             color: activeKey === n.key ? "#fff" : "#9DB3AB",
           }}>
-            <n.icon size={18} strokeWidth={activeKey === n.key ? 2.3 : 1.9} />
+            <IconChip icon={n.icon} color={n.color || "#9DB3AB"} size={30} iconSize={17}
+              strokeWidth={activeKey === n.key ? 2.3 : 1.9} background="transparent"
+              style={{ opacity: activeKey === n.key ? 1 : 0.6 }} />
             {n.label}
           </button>
         ))}
-      </div>
-      <div style={{ padding: 14, borderTop: "1px solid rgba(255,255,255,0.1)" }}>
-        <button onClick={onSignOut} style={{
-          width: "100%", background: "rgba(255,255,255,0.08)", border: "none", color: "#fff",
-          fontSize: 12.5, fontWeight: 700, padding: "9px 10px", borderRadius: 10, cursor: "pointer", textAlign: "left", fontFamily: "inherit",
-        }}>
-          {roleLabel?.split(" ")[0] || ""} · {userName.split(" ")[0]}
-          <div style={{ fontSize: 10.5, fontWeight: 600, color: "#9DB3AB", marginTop: 2 }}>Tap to sign out</div>
-        </button>
       </div>
     </div>
   );
@@ -638,6 +783,12 @@ function Shell({ children, wide }) {
         @keyframes fadeScaleIn { from { transform: scale(0.96); opacity: 0.4 } to { transform: scale(1); opacity: 1 } }
         input:focus, select:focus, textarea:focus { border-color: ${T.accent} !important; box-shadow: 0 0 0 3px ${T.accentSoft}; }
         ::-webkit-scrollbar { width: 0; height: 0; }
+        .icon-chip { transition: transform 0.15s ease, background 0.15s ease; }
+        button:hover .icon-chip { transform: scale(1.1); }
+        button:active .icon-chip { transform: scale(0.92); }
+        .lift-card { transition: transform 0.15s ease, box-shadow 0.15s ease; }
+        .lift-card:hover { transform: translateY(-2px); box-shadow: 0 6px 16px rgba(22,50,58,0.1); }
+        .lift-card:active { transform: translateY(0); }
       `}</style>
       {children}
     </div>
@@ -663,10 +814,10 @@ function RoleGate({ users, onEnter }) {
 
   return (
     <div style={{ padding: "60px 26px", display: "flex", flexDirection: "column", alignItems: "center", minHeight: "100vh", justifyContent: "center", background: T.ink }}>
-      <div style={{ width: 54, height: 54, borderRadius: 14, background: T.accent, display: "grid", placeItems: "center", marginBottom: 18 }}>
-        <ShieldAlert size={28} color="#fff" />
+      <div style={{ background: "#fff", borderRadius: 16, padding: 12, marginBottom: 18, display: "inline-flex", boxShadow: "0 8px 24px rgba(0,0,0,0.2)" }}>
+        <img src={logo} alt="Advisory Management System" style={{ width: 96, height: "auto", display: "block" }} />
       </div>
-      <h1 style={{ color: "#fff", fontFamily: "'Space Grotesk', sans-serif", fontSize: 24, margin: "0 0 4px" }}>Advisory Desk</h1>
+      <h1 style={{ color: "#fff", fontFamily: "'Space Grotesk', sans-serif", fontSize: 24, margin: "0 0 10px", textAlign: "center" }}>Advisory Management System</h1>
       <p style={{ color: "#9DB3AB", fontSize: 13.5, margin: "0 0 28px", textAlign: "center" }}>Case tracking for advisory visits, assessments &amp; corrective actions</p>
       <div style={{ width: "100%", background: T.surface, borderRadius: 16, padding: 20 }}>
         <Field label="Username">
@@ -686,10 +837,6 @@ function RoleGate({ users, onEnter }) {
         <Btn full onClick={tryLogin}>
           <LogIn size={16} /> Sign in
         </Btn>
-        <div style={{ fontSize: 11.5, color: T.muted, marginTop: 14, textAlign: "center", lineHeight: 1.5 }}>
-          Data is stored in Firebase and shared across everyone using this app.<br />
-          Demo accounts: <b>dpich</b>/admin123 · <b>lmeas</b>/manager123 · <b>vros</b>/officer123 · <b>schan</b>/company123
-        </div>
       </div>
     </div>
   );
@@ -718,12 +865,12 @@ function Dashboard({ ctx, goto }) {
 
   return (
     <div>
-      <Header title="Overview" subtitle={fmtDate(todayISO())} />
+      <Header title="Overview" subtitle={fmtDate(todayISO())} icon={TrendingUp} color={MODULE_COLORS.dashboard} />
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, padding: "14px 18px" }}>
-        <StatCard label="Companies" value={ctx.visibleCompanies.length} icon={Building2} onClick={() => goto("companies")} />
-        <StatCard label="Open Actions" value={openCaps.length} icon={ShieldAlert} tone={openCaps.length ? "amber" : "green"} onClick={() => goto("caps")} />
+        <StatCard label="Companies" value={ctx.visibleCompanies.length} icon={Building2} tone="blue" onClick={() => goto("companies")} />
+        <StatCard label="Open Improvement Plans" value={openCaps.length} icon={ShieldAlert} tone={openCaps.length ? "amber" : "green"} onClick={() => goto("caps")} />
         <StatCard label="Overdue" value={overdue.length} icon={AlertTriangle} tone={overdue.length ? "red" : "green"} onClick={() => goto("caps")} />
-        <StatCard label="Advisory Cycles" value={advisoryInScope.length} icon={ClipboardList} onClick={() => goto("advisory")} />
+        <StatCard label="Advisory Cycles" value={advisoryInScope.length} icon={ClipboardList} tone="purple" onClick={() => goto("advisory")} />
       </div>
 
       <div style={{ margin: "6px 18px 18px", background: T.surface, borderRadius: 16, padding: 18, border: `1px solid ${T.border}` }}>
@@ -731,7 +878,7 @@ function Dashboard({ ctx, goto }) {
           <RingProgress pct={rate} />
           <div>
             <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: 20, color: T.ink }}>{rate}% resolved</div>
-            <div style={{ fontSize: 12.5, color: T.muted }}>{completedCaps} of {capsInScope.length} corrective actions closed out</div>
+            <div style={{ fontSize: 12.5, color: T.muted }}>{completedCaps} of {capsInScope.length} improvement plans closed out</div>
           </div>
         </div>
       </div>
@@ -778,13 +925,14 @@ function RingProgress({ pct }) {
 }
 
 function StatCard({ label, value, icon: Icon, tone, onClick }) {
-  const color = tone === "amber" ? T.amber : tone === "red" ? T.red : tone === "green" ? T.green : T.accent;
+  const toneColors = { amber: T.amber, red: T.red, green: T.green, blue: T.blue, purple: T.purple };
+  const color = toneColors[tone] || T.accent;
   return (
-    <button onClick={onClick} style={{
+    <button onClick={onClick} className="lift-card" style={{
       background: T.surface, border: `1px solid ${T.border}`, borderRadius: 14, padding: 14,
       textAlign: "left", cursor: "pointer", fontFamily: "inherit",
     }}>
-      <Icon size={17} color={color} />
+      <IconChip icon={Icon} color={color} size={34} iconSize={17} />
       <div style={{ fontSize: 24, fontWeight: 700, color: T.ink, marginTop: 8, fontFamily: "'Space Grotesk', sans-serif" }}>{value}</div>
       <div style={{ fontSize: 12, color: T.muted, fontWeight: 600 }}>{label}</div>
     </button>
@@ -846,6 +994,10 @@ function deleteCompanyCascade(ctx, id) {
     meetings: data.meetingLogs.filter((m) => m.companyId === id).length,
     committee: data.bipartiteCommittee.filter((b) => b.companyId === id).length,
     users: data.users.filter((u) => u.companyId === id).length,
+    trainings: data.trainings.filter((t) => t.companyId === id).length,
+    grievances: data.grievances.filter((g) => g.companyId === id).length,
+    policies: data.policies.filter((p) => p.companyId === id).length,
+    licenses: data.licenses.filter((l) => l.companyId === id).length,
   };
   const total = Object.values(counts).reduce((a, b) => a + b, 0);
   const detail = total === 0 ? "" : ` This also permanently deletes ${total} related record(s): `
@@ -857,6 +1009,10 @@ function deleteCompanyCascade(ctx, id) {
       counts.meetings && `${counts.meetings} meeting log(s)`,
       counts.committee && `${counts.committee} bipartite committee member(s)`,
       counts.users && `${counts.users} company user account(s)`,
+      counts.trainings && `${counts.trainings} training record(s)`,
+      counts.grievances && `${counts.grievances} grievance record(s)`,
+      counts.policies && `${counts.policies} policy/procedure document(s)`,
+      counts.licenses && `${counts.licenses} license/inspection record(s)`,
     ].filter(Boolean).join(", ") + ".";
   if (!window.confirm(`Delete ${company?.name || "this company"}?${detail} This cannot be undone.`)) return false;
 
@@ -867,6 +1023,10 @@ function deleteCompanyCascade(ctx, id) {
   update("meetingLogs", (prev) => prev.filter((m) => m.companyId !== id));
   update("bipartiteCommittee", (prev) => prev.filter((b) => b.companyId !== id));
   update("users", (prev) => prev.filter((u) => u.companyId !== id));
+  update("trainings", (prev) => prev.filter((t) => t.companyId !== id));
+  update("grievances", (prev) => prev.filter((g) => g.companyId !== id));
+  update("policies", (prev) => prev.filter((p) => p.companyId !== id));
+  update("licenses", (prev) => prev.filter((l) => l.companyId !== id));
   update("companies", (prev) => prev.filter((c) => c.id !== id));
   return true;
 }
@@ -887,11 +1047,11 @@ function CompaniesView({ ctx }) {
 
   return (
     <div>
-      <Header title="Companies" subtitle={`${list.length} registered`}
+      <Header title="Companies" subtitle={`${list.length} registered`} icon={Building2} color={MODULE_COLORS.companies}
         action={hasPerm(ctx, "companies", "edit") ? <Btn small onClick={() => setForm({})}><Plus size={15} />New</Btn> : null} />
       <SearchBar value={q} onChange={setQ} placeholder="Search companies…" />
       <div style={{ padding: "6px 18px" }}>
-        {list.length === 0 && <EmptyState icon={Building2} title="No companies yet" hint="Add a company to start an advisory cycle." />}
+        {list.length === 0 && <EmptyState icon={Building2} color={MODULE_COLORS.companies} title="No companies yet" hint="Add a company to start an advisory cycle." />}
         {list.map((c) => {
           const cycles = data.advisoryInfo.filter((a) => a.companyId === c.id).length;
           return (
@@ -963,7 +1123,7 @@ function CompanyDetail({ id, ctx, onBack }) {
       <div style={{ padding: "14px 18px 0" }}>
         <Btn variant="ghost" small onClick={onBack}><ArrowLeft size={14} />All companies</Btn>
       </div>
-      <Header title={c.name} subtitle={c.type} action={hasPerm(ctx, "companies", "edit") ? <Btn small onClick={() => setForm(c)}><Pencil size={13} />Edit</Btn> : null} />
+      <Header title={c.name} subtitle={c.type} icon={Building2} color={MODULE_COLORS.companies} action={hasPerm(ctx, "companies", "edit") ? <Btn small onClick={() => setForm(c)}><Pencil size={13} />Edit</Btn> : null} />
       <div style={{ padding: "0 18px" }}>
         <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 14, padding: 14, marginBottom: 14 }}>
           <div style={{ display: "flex", gap: 8, fontSize: 13.5, color: T.ink2, marginBottom: 8 }}>
@@ -1004,10 +1164,10 @@ function AdvisoryView({ ctx }) {
   const cycles = data.advisoryInfo.filter((a) => inScope(ctx, a.companyId));
   return (
     <div>
-      <Header title="Advisory Cycles" subtitle={`${cycles.length} cycles tracked`}
+      <Header title="Advisory Cycles" subtitle={`${cycles.length} cycles tracked`} icon={ClipboardList} color={MODULE_COLORS.advisory}
         action={hasPerm(ctx, "advisory", "edit") ? <Btn small onClick={() => setForm({})}><Plus size={15} />New</Btn> : null} />
       <div style={{ padding: "10px 18px" }}>
-        {cycles.length === 0 && <EmptyState icon={ClipboardList} title="No advisory cycles" hint="Create a cycle under a company." />}
+        {cycles.length === 0 && <EmptyState icon={ClipboardList} color={MODULE_COLORS.advisory} title="No advisory cycles" hint="Create a cycle under a company." />}
         {cycles.map((a) => {
           const co = data.companies.find((c) => c.id === a.companyId);
           return (
@@ -1069,21 +1229,21 @@ function AdvisoryDetail({ id, ctx, onBack }) {
   return (
     <div>
       <div style={{ padding: "14px 18px 0" }}><Btn variant="ghost" small onClick={onBack}><ArrowLeft size={14} />All cycles</Btn></div>
-      <Header title={a.cycleNumber} subtitle={co?.name} action={hasPerm(ctx, "advisory", "edit") ? <Btn small onClick={() => setForm(a)}><Pencil size={13} />Edit</Btn> : null} />
+      <Header title={a.cycleNumber} subtitle={co?.name} icon={ClipboardList} color={MODULE_COLORS.advisory} action={hasPerm(ctx, "advisory", "edit") ? <Btn small onClick={() => setForm(a)}><Pencil size={13} />Edit</Btn> : null} />
       <div style={{ padding: "0 18px" }}>
         <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 14, padding: 14, marginBottom: 4 }}>
           <div style={{ fontSize: 13.5, color: T.ink2 }}>{fmtDate(a.startDate)} → {fmtDate(a.endDate)}</div>
           {a.remark && <div style={{ fontSize: 13, color: T.muted, marginTop: 6 }}>{a.remark}</div>}
         </div>
       </div>
-      <SectionLabel>Visits</SectionLabel>
+      <SectionLabel>Advisory Visits</SectionLabel>
       <div style={{ padding: "0 18px" }}>
         {visits.length === 0 && <EmptyRow text="No visits logged yet." />}
         {visits.map((v) => (
           <Row key={v.id} left={<CalendarClock size={16} color={T.accent} />} title={v.visitNumber} sub={`${fmtDate(v.date)} · ${v.startTime}–${v.endTime}`} />
         ))}
       </div>
-      <SectionLabel>Assessment plans</SectionLabel>
+      <SectionLabel>Assessment/Audit</SectionLabel>
       <div style={{ padding: "0 18px" }}>
         {plans.length === 0 && <EmptyRow text="No assessment plan yet." />}
         {plans.map((p) => (
@@ -1111,10 +1271,10 @@ function VisitsView({ ctx }) {
     .sort((a, b) => b.date.localeCompare(a.date));
   return (
     <div>
-      <Header title="Advisory Visits" subtitle={`${sorted.length} visits logged`}
+      <Header title="Advisory Visits" subtitle={`${sorted.length} visits logged`} icon={CalendarClock} color={MODULE_COLORS.visits}
         action={canEdit ? <Btn small onClick={() => setForm({})}><Plus size={15} />Log visit</Btn> : null} />
       <div style={{ padding: "10px 18px" }}>
-        {sorted.length === 0 && <EmptyState icon={CalendarClock} title="No visits logged" hint="Record your first advisory visit." />}
+        {sorted.length === 0 && <EmptyState icon={CalendarClock} color={MODULE_COLORS.visits} title="No visits logged" hint="Record your first advisory visit." />}
         {sorted.map((v) => {
           const adv = data.advisoryInfo.find((a) => a.id === v.advisoryInfoId);
           const co = data.companies.find((c) => c.id === adv?.companyId);
@@ -1279,10 +1439,10 @@ function AssessmentView({ ctx }) {
   });
   return (
     <div>
-      <Header title="Assessment Plans" subtitle={`${plans.length} plans`}
+      <Header title="Assessment/Audit" subtitle={`${plans.length} plans`} icon={FileText} color={MODULE_COLORS.assessment}
         action={hasPerm(ctx, "assessment", "edit") ? <Btn small onClick={() => setForm({})}><Plus size={15} />New</Btn> : null} />
       <div style={{ padding: "10px 18px" }}>
-        {plans.length === 0 && <EmptyState icon={FileText} title="No assessment plans" hint="Plan a new assessment for a cycle." />}
+        {plans.length === 0 && <EmptyState icon={FileText} color={MODULE_COLORS.assessment} title="No assessment plans" hint="Plan a new assessment for a cycle." />}
         {plans.map((p) => {
           const adv = data.advisoryInfo.find((a) => a.id === p.advisoryInfoId);
           const co = data.companies.find((c) => c.id === adv?.companyId);
@@ -1351,7 +1511,7 @@ function AssessmentDetail({ id, ctx, onBack }) {
   return (
     <div>
       <div style={{ padding: "14px 18px 0" }}><Btn variant="ghost" small onClick={onBack}><ArrowLeft size={14} />All plans</Btn></div>
-      <Header title={co?.name || "Assessment"} subtitle={adv?.cycleNumber} action={hasPerm(ctx, "assessment", "edit") ? <Btn small onClick={() => setForm(p)}><Pencil size={13} />Edit</Btn> : null} />
+      <Header title={co?.name || "Assessment"} subtitle={adv?.cycleNumber} icon={FileText} color={MODULE_COLORS.assessment} action={hasPerm(ctx, "assessment", "edit") ? <Btn small onClick={() => setForm(p)}><Pencil size={13} />Edit</Btn> : null} />
       <div style={{ padding: "0 18px" }}>
         <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 14, padding: 14, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, fontSize: 13 }}>
           <div><div style={{ color: T.muted, fontSize: 11.5, fontWeight: 700 }}>PREVIOUS</div>{fmtDate(p.previousAssessmentDate)}</div>
@@ -1392,7 +1552,7 @@ function CapsView({ ctx }) {
 
   return (
     <div>
-      <Header title="Corrective Actions" subtitle={`${enriched.length} tracked`} action={canEdit ? <Btn small onClick={() => setForm({})}><Plus size={15} />New</Btn> : null} />
+      <Header title="Improvement Plan" subtitle={`${enriched.length} tracked`} icon={ShieldAlert} color={MODULE_COLORS.caps} action={canEdit ? <Btn small onClick={() => setForm({})}><Plus size={15} />New</Btn> : null} />
       <div style={{ display: "flex", gap: 6, padding: "10px 18px", overflowX: "auto" }}>
         {["All", "Open", "In Progress", "Overdue", "Completed"].map((f) => (
           <button key={f} onClick={() => setFilter(f)} style={{
@@ -1403,7 +1563,7 @@ function CapsView({ ctx }) {
         ))}
       </div>
       <div style={{ padding: "0 18px" }}>
-        {filtered.length === 0 && <EmptyState icon={ShieldAlert} title="No matching actions" hint="Try a different filter or add a new action." />}
+        {filtered.length === 0 && <EmptyState icon={ShieldAlert} color={MODULE_COLORS.caps} title="No matching improvement plans" hint="Try a different filter or add a new one." />}
         {filtered.map((c) => (
           <div key={c.id} onClick={canEdit ? () => setForm(c) : undefined} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: 14, marginBottom: 8, cursor: canEdit ? "pointer" : "default" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
@@ -1414,6 +1574,16 @@ function CapsView({ ctx }) {
               <Pill tone={capTone(c.status)}>{c.status}</Pill>
             </div>
             <div style={{ fontSize: 12.5, color: T.ink2, marginTop: 4 }}>{c.companyName}</div>
+            {c.rootCause && (
+              <div style={{ fontSize: 12.5, color: T.ink2, marginTop: 8, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                <span style={{ fontWeight: 700, color: T.muted }}>Root cause: </span>{c.rootCause}
+              </div>
+            )}
+            {c.correctiveActions && (
+              <div style={{ fontSize: 12.5, color: T.ink2, marginTop: 4, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                <span style={{ fontWeight: 700, color: T.muted }}>Corrective actions: </span>{c.correctiveActions}
+              </div>
+            )}
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 10 }}>
               <div style={{ flex: 1, height: 6, background: T.bg, borderRadius: 4, overflow: "hidden" }}>
                 <div style={{ width: `${c.progress || 0}%`, height: "100%", background: T.accent }} />
@@ -1452,7 +1622,7 @@ function CapForm({ initial, ctx, onClose }) {
   const remove = () => { update("caps", (prev) => prev.filter((p) => p.id !== c.id)); onClose(); };
 
   return (
-    <Sheet title={initial.id ? "Edit corrective action" : "New corrective action"} onClose={onClose}>
+    <Sheet title={initial.id ? "Edit improvement plan" : "New improvement plan"} onClose={onClose}>
       <Field label="Assessment plan">
         <Select value={c.assessmentPlanId} onChange={(e) => setC({ ...c, assessmentPlanId: e.target.value })}>
           {scopedPlans.map((p) => {
@@ -1478,7 +1648,7 @@ function CapForm({ initial, ctx, onClose }) {
             ))}
           </Select>
         )}
-        <TextArea value={c.rootCause} onChange={(e) => setC({ ...c, rootCause: e.target.value })} placeholder="Pick from the list above, or type your own…" />
+        <TextArea rows={5} value={c.rootCause} onChange={(e) => setC({ ...c, rootCause: e.target.value })} placeholder="Pick from the list above, or type your own…" />
       </Field>
       <Field label="Corrective actions">
         {data.capRecommendations.length > 0 && (
@@ -1492,7 +1662,7 @@ function CapForm({ initial, ctx, onClose }) {
             ))}
           </Select>
         )}
-        <TextArea value={c.correctiveActions} onChange={(e) => setC({ ...c, correctiveActions: e.target.value })} placeholder="Pick from the list above, or type your own…" />
+        <TextArea rows={5} value={c.correctiveActions} onChange={(e) => setC({ ...c, correctiveActions: e.target.value })} placeholder="Pick from the list above, or type your own…" />
       </Field>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
         <Field label="Lead person"><TextInput value={c.leadPerson} onChange={(e) => setC({ ...c, leadPerson: e.target.value })} /></Field>
@@ -1536,10 +1706,10 @@ function MeetingLogsView({ ctx }) {
 
   return (
     <div>
-      <Header title="Meeting Logs" subtitle={`${sorted.length} meetings recorded`} action={hasPerm(ctx, "meetings", "edit") ? <Btn small onClick={() => setForm({})}><Plus size={15} />New</Btn> : null} />
+      <Header title="Meeting Logs" subtitle={`${sorted.length} meetings recorded`} icon={MessageSquare} color={MODULE_COLORS.meetings} action={hasPerm(ctx, "meetings", "edit") ? <Btn small onClick={() => setForm({})}><Plus size={15} />New</Btn> : null} />
       <SearchBar value={q} onChange={setQ} placeholder="Search meetings, participants…" />
       <div style={{ padding: "6px 18px" }}>
-        {filtered.length === 0 && <EmptyState icon={MessageSquare} title="No meeting logs" hint="Record your first meeting." />}
+        {filtered.length === 0 && <EmptyState icon={MessageSquare} color={MODULE_COLORS.meetings} title="No meeting logs" hint="Record your first meeting." />}
         {filtered.map((m) => {
           const co = data.companies.find((c) => c.id === m.companyId);
           const canEdit = hasPerm(ctx, "meetings", "edit");
@@ -1623,7 +1793,7 @@ function BipartiteCommitteeView({ ctx }) {
 
   return (
     <div>
-      <Header title="Bipartite Committee" subtitle={`${filtered.length} members`} action={canEdit ? <Btn small onClick={() => setForm({})}><Plus size={15} />New</Btn> : null} />
+      <Header title="Bipartite Committee" subtitle={`${filtered.length} members`} icon={Scale} color={MODULE_COLORS.committee} action={canEdit ? <Btn small onClick={() => setForm({})}><Plus size={15} />New</Btn> : null} />
       <SearchBar value={q} onChange={setQ} placeholder="Search members…" />
       <div style={{ padding: "0 18px 6px" }}>
         <Select value={companyFilter} onChange={(e) => setCompanyFilter(e.target.value)}>
@@ -1632,7 +1802,7 @@ function BipartiteCommitteeView({ ctx }) {
         </Select>
       </div>
       <div style={{ padding: "10px 18px" }}>
-        {filtered.length === 0 && <EmptyState icon={Scale} title="No committee members" hint="Add members of the bipartite committee." />}
+        {filtered.length === 0 && <EmptyState icon={Scale} color={MODULE_COLORS.committee} title="No committee members" hint="Add members of the bipartite committee." />}
         {filtered.map((mem) => {
           const co = data.companies.find((c) => c.id === mem.companyId);
           return (
@@ -1725,11 +1895,44 @@ function clusterTone(cluster) {
   return map[cluster] || "muted";
 }
 
+const CAP_RECOMMENDATION_COLUMNS = [
+  { key: "NC No.", field: "ncNo" },
+  { key: "Area", field: "area" },
+  { key: "Cluster", field: "cluster" },
+  { key: "Root Cause", field: "rootCause" },
+  { key: "Proposed CA", field: "proposedCA" },
+];
+
+function exportCapRecommendations(list) {
+  const rows = list.map((r) => Object.fromEntries(CAP_RECOMMENDATION_COLUMNS.map((c) => [c.key, r[c.field] || ""])));
+  exportExcel(rows, "CAP Recommendations", `cap-recommendations-${todayISO()}.xlsx`);
+}
+
+async function parseCapRecommendationsExcel(file) {
+  const buf = await file.arrayBuffer();
+  const wb = XLSX.read(buf, { type: "array" });
+  const sheet = wb.Sheets[wb.SheetNames[0]];
+  const rows = XLSX.utils.sheet_to_json(sheet, { defval: "" });
+  return rows
+    .map((row) => ({
+      id: uid("cr"),
+      ncNo: String(row["NC No."] ?? row["NC No"] ?? "").trim(),
+      area: String(row["Area"] ?? row["Areas of improvement"] ?? "").trim(),
+      cluster: CAP_CLUSTERS.includes(row["Cluster"]) ? row["Cluster"] : CAP_CLUSTERS[CAP_CLUSTERS.length - 1],
+      rootCause: String(row["Root Cause"] ?? "").trim(),
+      proposedCA: String(row["Proposed CA"] ?? "").trim(),
+    }))
+    .filter((r) => r.ncNo && r.area);
+}
+
 function CapRecommendationsView({ ctx }) {
   const { data } = ctx;
   const [q, setQ] = useState("");
   const [clusterFilter, setClusterFilter] = useState("");
   const [form, setForm] = useState(null);
+  const [importMsg, setImportMsg] = useState("");
+  const [importError, setImportError] = useState("");
+  const fileInputRef = useRef(null);
 
   const filtered = data.capRecommendations.filter((r) => {
     if (clusterFilter && r.cluster !== clusterFilter) return false;
@@ -1739,9 +1942,36 @@ function CapRecommendationsView({ ctx }) {
 
   const canEdit = hasPerm(ctx, "caprecs", "edit");
 
+  const onImportFile = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImportMsg("");
+    setImportError("");
+    try {
+      const imported = await parseCapRecommendationsExcel(file);
+      if (imported.length === 0) {
+        setImportError("No valid rows found. Expected columns: NC No., Area, Cluster, Root Cause, Proposed CA.");
+      } else {
+        ctx.update("capRecommendations", (prev) => [...prev, ...imported]);
+        setImportMsg(`Imported ${imported.length} recommendation${imported.length === 1 ? "" : "s"}.`);
+      }
+    } catch {
+      setImportError("Couldn't read that file — make sure it's a valid .xlsx or .xls file.");
+    } finally {
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
+
   return (
     <div>
-      <Header title="CAP Recommendations" subtitle={`${data.capRecommendations.length} reference items`} action={canEdit ? <Btn small onClick={() => setForm({})}><Plus size={15} />New</Btn> : null} />
+      <Header title="CAP Recommendations" subtitle={`${data.capRecommendations.length} reference items`} icon={BookOpen} color={MODULE_COLORS.caprecs} action={canEdit ? <Btn small onClick={() => setForm({})}><Plus size={15} />New</Btn> : null} />
+      <div style={{ display: "flex", gap: 8, padding: "0 18px 10px" }}>
+        {canEdit && <Btn variant="ghost" small onClick={() => fileInputRef.current?.click()}><Upload size={13} /> Import Excel</Btn>}
+        <Btn variant="ghost" small onClick={() => exportCapRecommendations(filtered)}><Download size={13} /> Export Excel</Btn>
+        {canEdit && <input ref={fileInputRef} type="file" accept=".xlsx,.xls" onChange={onImportFile} style={{ display: "none" }} />}
+      </div>
+      {importMsg && <div style={{ padding: "0 18px 8px", fontSize: 12, color: T.green, fontWeight: 600 }}>{importMsg}</div>}
+      {importError && <div style={{ padding: "0 18px 8px", fontSize: 12, color: T.red, fontWeight: 600 }}>{importError}</div>}
       <SearchBar value={q} onChange={setQ} placeholder="Search NC no., area, root cause…" />
       <div style={{ padding: "0 18px 6px" }}>
         <Select value={clusterFilter} onChange={(e) => setClusterFilter(e.target.value)}>
@@ -1750,7 +1980,7 @@ function CapRecommendationsView({ ctx }) {
         </Select>
       </div>
       <div style={{ padding: "10px 18px" }}>
-        {filtered.length === 0 && <EmptyState icon={BookOpen} title="No recommendations" hint="Build a library of standard root causes and corrective actions." />}
+        {filtered.length === 0 && <EmptyState icon={BookOpen} color={MODULE_COLORS.caprecs} title="No recommendations" hint="Build a library of standard root causes and corrective actions." />}
         {filtered.map((r) => (
           <div key={r.id} onClick={canEdit ? () => setForm(r) : undefined} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: 14, marginBottom: 8, cursor: canEdit ? "pointer" : "default" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
@@ -1798,6 +2028,627 @@ function CapRecommendationForm({ initial, onClose, onSave, onDelete }) {
 }
 
 /* ---------------------------------------------------------------
+   TRAINING
+----------------------------------------------------------------*/
+function TrainingView({ ctx }) {
+  const { data } = ctx;
+  const [q, setQ] = useState("");
+  const [statusFilter, setStatusFilter] = useState("All");
+  const [form, setForm] = useState(null);
+  const canEdit = hasPerm(ctx, "training", "edit");
+
+  const sorted = [...data.trainings].filter((t) => inScope(ctx, t.companyId)).sort((a, b) => b.date.localeCompare(a.date));
+  const filtered = sorted.filter((t) => {
+    if (statusFilter !== "All" && t.status !== statusFilter) return false;
+    const co = data.companies.find((c) => c.id === t.companyId);
+    const hay = `${t.topic} ${t.trainer} ${co?.name || ""} ${(t.participants || []).join(" ")}`.toLowerCase();
+    return hay.includes(q.toLowerCase());
+  });
+
+  return (
+    <div>
+      <Header title="Training" subtitle={`${sorted.length} sessions`} icon={GraduationCap} color={MODULE_COLORS.training} action={canEdit ? <Btn small onClick={() => setForm({})}><Plus size={15} />New</Btn> : null} />
+      <SearchBar value={q} onChange={setQ} placeholder="Search topic, trainer, participants…" />
+      <div style={{ display: "flex", gap: 6, padding: "10px 18px", overflowX: "auto" }}>
+        {["All", ...TRAINING_STATUSES].map((f) => (
+          <button key={f} onClick={() => setStatusFilter(f)} style={{
+            padding: "7px 12px", borderRadius: 999, border: `1px solid ${statusFilter === f ? T.accent : T.border}`,
+            background: statusFilter === f ? T.accent : T.surface, color: statusFilter === f ? "#fff" : T.ink2,
+            fontSize: 12.5, fontWeight: 700, whiteSpace: "nowrap", cursor: "pointer", fontFamily: "inherit",
+          }}>{f}</button>
+        ))}
+      </div>
+      <div style={{ padding: "0 18px" }}>
+        {filtered.length === 0 && <EmptyState icon={GraduationCap} color={MODULE_COLORS.training} title="No training sessions" hint="Schedule your first training session." />}
+        {filtered.map((t) => {
+          const co = data.companies.find((c) => c.id === t.companyId);
+          return (
+            <div key={t.id} onClick={canEdit ? () => setForm(t) : undefined} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: 14, marginBottom: 8, cursor: canEdit ? "pointer" : "default" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: 14.5, color: T.ink }}>{t.topic}</span>
+                <Pill tone={trainingTone(t.status)}>{t.status}</Pill>
+              </div>
+              {co && <div style={{ fontSize: 12.5, color: T.ink2, marginTop: 4 }}>{co.name}</div>}
+              <div style={{ fontSize: 12.5, color: T.muted, marginTop: 6, display: "flex", alignItems: "center", gap: 4 }}>
+                <Clock size={12} /> {fmtDate(t.date)} · {t.startTime}–{t.endTime} · {t.deliveryMode}
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 8 }}>
+                {t.trainer && <span style={{ fontSize: 12, color: T.muted }}>Trainer: {t.trainer}</span>}
+                {(t.participants || []).length > 0 && (
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 3, color: T.accentDark, fontWeight: 700, fontSize: 12 }}>
+                    <UsersIcon size={12} /> {t.participants.length}
+                  </span>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      {form && <TrainingForm initial={form} ctx={ctx} onClose={() => setForm(null)} />}
+    </div>
+  );
+}
+
+function TrainingForm({ initial, ctx, onClose }) {
+  const { update } = ctx;
+  const initParticipants = (initial.participants || []).join("\n");
+  const [t, setT] = useState({
+    companyId: ctx.scopeCompanyId && ctx.scopeCompanyId !== "__unassigned__" ? ctx.scopeCompanyId : "",
+    topic: "", trainer: "", date: todayISO(), startTime: "09:00", endTime: "11:00",
+    deliveryMode: TRAINING_DELIVERY_MODES[0], status: TRAINING_STATUSES[0], location: "", notes: "",
+    ...initial,
+  });
+  const [participantsText, setParticipantsText] = useState(initParticipants);
+
+  const save = () => {
+    if (!t.topic.trim() || !t.date) return;
+    const participants = participantsText.split("\n").map((s) => s.trim()).filter(Boolean);
+    const record = { ...t, participants };
+    update("trainings", (prev) => record.id && prev.some((p) => p.id === record.id) ? prev.map((p) => (p.id === record.id ? record : p)) : [...prev, { ...record, id: uid("tr") }]);
+    onClose();
+  };
+  const remove = () => { update("trainings", (prev) => prev.filter((p) => p.id !== t.id)); onClose(); };
+
+  return (
+    <Sheet title={initial.id ? "Edit training session" : "New training session"} onClose={onClose}>
+      <Field label="Related company (optional)">
+        <Select value={t.companyId} onChange={(e) => setT({ ...t, companyId: e.target.value })}>
+          <option value="">— None —</option>
+          {ctx.visibleCompanies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+        </Select>
+      </Field>
+      <Field label="Training topic"><TextInput value={t.topic} onChange={(e) => setT({ ...t, topic: e.target.value })} placeholder="e.g. Fire Safety & Emergency Response" /></Field>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+        <Field label="Trainer"><TextInput value={t.trainer} onChange={(e) => setT({ ...t, trainer: e.target.value })} /></Field>
+        <Field label="Delivery mode">
+          <Select value={t.deliveryMode} onChange={(e) => setT({ ...t, deliveryMode: e.target.value })}>
+            {TRAINING_DELIVERY_MODES.map((m) => <option key={m}>{m}</option>)}
+          </Select>
+        </Field>
+      </div>
+      <Field label="Date"><TextInput type="date" value={t.date} onChange={(e) => setT({ ...t, date: e.target.value })} /></Field>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+        <Field label="Start time"><TextInput type="time" value={t.startTime} onChange={(e) => setT({ ...t, startTime: e.target.value })} /></Field>
+        <Field label="End time"><TextInput type="time" value={t.endTime} onChange={(e) => setT({ ...t, endTime: e.target.value })} /></Field>
+      </div>
+      <Field label="Location"><TextInput value={t.location} onChange={(e) => setT({ ...t, location: e.target.value })} placeholder="e.g. Training Hall" /></Field>
+      <Field label="Status">
+        <Select value={t.status} onChange={(e) => setT({ ...t, status: e.target.value })}>
+          {TRAINING_STATUSES.map((s) => <option key={s}>{s}</option>)}
+        </Select>
+      </Field>
+      <Field label="Participants (one name per line)">
+        <TextArea rows={4} value={participantsText} onChange={(e) => setParticipantsText(e.target.value)} placeholder={"Sokha Chan\nRatanak Sok\n…"} />
+      </Field>
+      <Field label="Notes"><TextArea value={t.notes} onChange={(e) => setT({ ...t, notes: e.target.value })} placeholder="Topics covered, materials used…" /></Field>
+      <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
+        {initial.id && hasPerm(ctx, "training", "delete") && <Btn variant="danger" onClick={remove}><Trash2 size={15} /> Delete</Btn>}
+        <div style={{ flex: 1 }} />
+        <Btn variant="ghost" onClick={onClose}>Cancel</Btn>
+        <Btn onClick={save}>Save</Btn>
+      </div>
+    </Sheet>
+  );
+}
+
+/* ---------------------------------------------------------------
+   GRIEVANCE MECHANISM
+----------------------------------------------------------------*/
+function GrievanceView({ ctx }) {
+  const { data } = ctx;
+  const [q, setQ] = useState("");
+  const [statusFilter, setStatusFilter] = useState("All");
+  const [form, setForm] = useState(null);
+  const canEdit = hasPerm(ctx, "grievance", "edit");
+
+  const sorted = [...data.grievances].filter((g) => inScope(ctx, g.companyId)).sort((a, b) => b.dateReported.localeCompare(a.dateReported));
+  const filtered = sorted.filter((g) => {
+    if (statusFilter !== "All" && g.status !== statusFilter) return false;
+    const co = data.companies.find((c) => c.id === g.companyId);
+    const hay = `${g.category} ${g.description} ${co?.name || ""}`.toLowerCase();
+    return hay.includes(q.toLowerCase());
+  });
+
+  return (
+    <div>
+      <Header title="Grievance Mechanism" subtitle={`${sorted.length} reports`} icon={Megaphone} color={MODULE_COLORS.grievance} action={canEdit ? <Btn small onClick={() => setForm({})}><Plus size={15} />New</Btn> : null} />
+      <SearchBar value={q} onChange={setQ} placeholder="Search category, description…" />
+      <div style={{ display: "flex", gap: 6, padding: "10px 18px", overflowX: "auto" }}>
+        {["All", ...GRIEVANCE_STATUSES].map((f) => (
+          <button key={f} onClick={() => setStatusFilter(f)} style={{
+            padding: "7px 12px", borderRadius: 999, border: `1px solid ${statusFilter === f ? T.accent : T.border}`,
+            background: statusFilter === f ? T.accent : T.surface, color: statusFilter === f ? "#fff" : T.ink2,
+            fontSize: 12.5, fontWeight: 700, whiteSpace: "nowrap", cursor: "pointer", fontFamily: "inherit",
+          }}>{f}</button>
+        ))}
+      </div>
+      <div style={{ padding: "0 18px" }}>
+        {filtered.length === 0 && <EmptyState icon={Megaphone} color={MODULE_COLORS.grievance} title="No grievances recorded" hint="Log a worker complaint or report to begin tracking it." />}
+        {filtered.map((g) => {
+          const co = data.companies.find((c) => c.id === g.companyId);
+          return (
+            <div key={g.id} onClick={canEdit ? () => setForm(g) : undefined} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: 14, marginBottom: 8, cursor: canEdit ? "pointer" : "default" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: 14, color: T.ink }}>{g.category}</span>
+                <Pill tone={grievanceTone(g.status)}>{g.status}</Pill>
+              </div>
+              {co && <div style={{ fontSize: 12.5, color: T.ink2, marginTop: 4 }}>{co.name}</div>}
+              {g.description && (
+                <div style={{ fontSize: 12.5, color: T.ink2, marginTop: 8, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                  {g.description}
+                </div>
+              )}
+              <div style={{ fontSize: 12, color: T.muted, marginTop: 6 }}>
+                Reported {fmtDate(g.dateReported)} · {g.reportedBy ? g.reportedBy : "Anonymous"} · via {g.channel}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      {form && <GrievanceForm initial={form} ctx={ctx} onClose={() => setForm(null)} />}
+    </div>
+  );
+}
+
+function GrievanceForm({ initial, ctx, onClose }) {
+  const { update } = ctx;
+  const [g, setG] = useState({
+    companyId: ctx.scopeCompanyId && ctx.scopeCompanyId !== "__unassigned__" ? ctx.scopeCompanyId : "",
+    dateReported: todayISO(), category: GRIEVANCE_CATEGORIES[0], channel: GRIEVANCE_CHANNELS[0],
+    description: "", reportedBy: "", status: GRIEVANCE_STATUSES[0], assignedTo: "", resolution: "", resolvedDate: "",
+    ...initial,
+  });
+
+  const save = () => {
+    if (!g.dateReported || !g.description.trim()) return;
+    update("grievances", (prev) => g.id && prev.some((p) => p.id === g.id) ? prev.map((p) => (p.id === g.id ? g : p)) : [...prev, { ...g, id: uid("gr") }]);
+    onClose();
+  };
+  const remove = () => { update("grievances", (prev) => prev.filter((p) => p.id !== g.id)); onClose(); };
+
+  return (
+    <Sheet title={initial.id ? "Edit grievance report" : "New grievance report"} onClose={onClose}>
+      <Field label="Related company">
+        <Select value={g.companyId} onChange={(e) => setG({ ...g, companyId: e.target.value })}>
+          <option value="">— None —</option>
+          {ctx.visibleCompanies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+        </Select>
+      </Field>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+        <Field label="Date reported"><TextInput type="date" value={g.dateReported} onChange={(e) => setG({ ...g, dateReported: e.target.value })} /></Field>
+        <Field label="Channel">
+          <Select value={g.channel} onChange={(e) => setG({ ...g, channel: e.target.value })}>
+            {GRIEVANCE_CHANNELS.map((c) => <option key={c}>{c}</option>)}
+          </Select>
+        </Field>
+      </div>
+      <Field label="Category">
+        <Select value={g.category} onChange={(e) => setG({ ...g, category: e.target.value })}>
+          {GRIEVANCE_CATEGORIES.map((c) => <option key={c}>{c}</option>)}
+        </Select>
+      </Field>
+      <Field label="Description"><TextArea rows={4} value={g.description} onChange={(e) => setG({ ...g, description: e.target.value })} placeholder="What was reported…" /></Field>
+      <Field label="Reported by (optional — leave blank if anonymous)">
+        <TextInput value={g.reportedBy} onChange={(e) => setG({ ...g, reportedBy: e.target.value })} placeholder="Worker name, or leave blank" />
+      </Field>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+        <Field label="Status">
+          <Select value={g.status} onChange={(e) => setG({ ...g, status: e.target.value })}>
+            {GRIEVANCE_STATUSES.map((s) => <option key={s}>{s}</option>)}
+          </Select>
+        </Field>
+        <Field label="Assigned to"><TextInput value={g.assignedTo} onChange={(e) => setG({ ...g, assignedTo: e.target.value })} /></Field>
+      </div>
+      <Field label="Resolution"><TextArea rows={3} value={g.resolution} onChange={(e) => setG({ ...g, resolution: e.target.value })} placeholder="How was this resolved…" /></Field>
+      <Field label="Resolved date"><TextInput type="date" value={g.resolvedDate} onChange={(e) => setG({ ...g, resolvedDate: e.target.value })} /></Field>
+      <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
+        {initial.id && hasPerm(ctx, "grievance", "delete") && <Btn variant="danger" onClick={remove}><Trash2 size={15} /> Delete</Btn>}
+        <div style={{ flex: 1 }} />
+        <Btn variant="ghost" onClick={onClose}>Cancel</Btn>
+        <Btn onClick={save}>Save</Btn>
+      </div>
+    </Sheet>
+  );
+}
+
+/* ---------------------------------------------------------------
+   DOCUMENTATION
+----------------------------------------------------------------*/
+function DocumentationView({ ctx }) {
+  const [tab, setTab] = useState("policies");
+  return (
+    <div>
+      <Header title="Documentation" subtitle="Policies, procedures, licenses & inspections" icon={FolderOpen} color={MODULE_COLORS.documents} />
+      <div style={{ display: "flex", gap: 6, padding: "10px 18px" }}>
+        {[{ k: "policies", l: "Policy & Procedure" }, { k: "licenses", l: "License & Inspection" }].map((t) => (
+          <button key={t.k} onClick={() => setTab(t.k)} style={{
+            flex: 1, padding: "10px 8px", borderRadius: 10, border: `1px solid ${tab === t.k ? T.accent : T.border}`,
+            background: tab === t.k ? T.accent : T.surface, color: tab === t.k ? "#fff" : T.ink2,
+            fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit",
+          }}>{t.l}</button>
+        ))}
+      </div>
+      {tab === "policies" ? <PolicyView ctx={ctx} /> : <LicenseView ctx={ctx} />}
+    </div>
+  );
+}
+
+function PolicyView({ ctx }) {
+  const { data } = ctx;
+  const [q, setQ] = useState("");
+  const [form, setForm] = useState(null);
+  const canEdit = hasPerm(ctx, "documents", "edit");
+
+  const sorted = [...data.policies].filter((p) => inScope(ctx, p.companyId)).sort((a, b) => (b.releasedDate || "").localeCompare(a.releasedDate || ""));
+  const filtered = sorted.filter((p) => {
+    const co = data.companies.find((c) => c.id === p.companyId);
+    const hay = `${p.code} ${p.name} ${p.type} ${co?.name || ""}`.toLowerCase();
+    return hay.includes(q.toLowerCase());
+  });
+
+  return (
+    <div>
+      <div style={{ padding: "0 18px 10px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <span style={{ fontSize: 12.5, color: T.muted }}>{sorted.length} documents</span>
+        {canEdit && <Btn small onClick={() => setForm({})}><Plus size={15} />New</Btn>}
+      </div>
+      <SearchBar value={q} onChange={setQ} placeholder="Search code, name, type…" />
+      <div style={{ padding: "10px 18px" }}>
+        {filtered.length === 0 && <EmptyState icon={FileText} color={MODULE_COLORS.documents} title="No policies or procedures" hint="Add your first policy or procedure document." />}
+        {filtered.map((p) => {
+          const co = data.companies.find((c) => c.id === p.companyId);
+          return (
+            <div key={p.id} onClick={canEdit ? () => setForm(p) : undefined} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: 14, marginBottom: 8, cursor: canEdit ? "pointer" : "default" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: 14.5, color: T.ink }}>{p.code} · {p.name}</span>
+                <Pill tone="accent">{p.type}</Pill>
+              </div>
+              {co && <div style={{ fontSize: 12.5, color: T.ink2, marginTop: 4 }}>{co.name}</div>}
+              <div style={{ fontSize: 12, color: T.muted, marginTop: 6 }}>Version {p.version || "—"} · Released {fmtDate(p.releasedDate)}</div>
+              {p.remark && <div style={{ fontSize: 12.5, color: T.ink2, marginTop: 8, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.remark}</div>}
+            </div>
+          );
+        })}
+      </div>
+      {form && <PolicyForm initial={form} ctx={ctx} onClose={() => setForm(null)} />}
+    </div>
+  );
+}
+
+function PolicyForm({ initial, ctx, onClose }) {
+  const { update } = ctx;
+  const [p, setP] = useState({
+    companyId: ctx.scopeCompanyId && ctx.scopeCompanyId !== "__unassigned__" ? ctx.scopeCompanyId : "",
+    code: "", name: "", version: "", releasedDate: todayISO(), type: DOC_TYPES[0], remark: "",
+    ...initial,
+  });
+
+  const save = () => {
+    if (!p.code.trim() || !p.name.trim()) return;
+    update("policies", (prev) => p.id && prev.some((x) => x.id === p.id) ? prev.map((x) => (x.id === p.id ? p : x)) : [...prev, { ...p, id: uid("pol") }]);
+    onClose();
+  };
+  const remove = () => { update("policies", (prev) => prev.filter((x) => x.id !== p.id)); onClose(); };
+
+  return (
+    <Sheet title={initial.id ? "Edit policy/procedure" : "New policy/procedure"} onClose={onClose}>
+      <Field label="Related company (optional)">
+        <Select value={p.companyId} onChange={(e) => setP({ ...p, companyId: e.target.value })}>
+          <option value="">— None —</option>
+          {ctx.visibleCompanies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+        </Select>
+      </Field>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+        <Field label="Code"><TextInput value={p.code} onChange={(e) => setP({ ...p, code: e.target.value })} placeholder="e.g. POL-01" /></Field>
+        <Field label="Version"><TextInput value={p.version} onChange={(e) => setP({ ...p, version: e.target.value })} placeholder="e.g. v1.0" /></Field>
+      </div>
+      <Field label="Name"><TextInput value={p.name} onChange={(e) => setP({ ...p, name: e.target.value })} placeholder="e.g. Code of Conduct" /></Field>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+        <Field label="Released date"><TextInput type="date" value={p.releasedDate} onChange={(e) => setP({ ...p, releasedDate: e.target.value })} /></Field>
+        <Field label="Type">
+          <Select value={p.type} onChange={(e) => setP({ ...p, type: e.target.value })}>
+            {DOC_TYPES.map((t) => <option key={t}>{t}</option>)}
+          </Select>
+        </Field>
+      </div>
+      <Field label="Remark"><TextArea value={p.remark} onChange={(e) => setP({ ...p, remark: e.target.value })} placeholder="Notes about scope, applicability…" /></Field>
+      <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
+        {initial.id && hasPerm(ctx, "documents", "delete") && <Btn variant="danger" onClick={remove}><Trash2 size={15} /> Delete</Btn>}
+        <div style={{ flex: 1 }} />
+        <Btn variant="ghost" onClick={onClose}>Cancel</Btn>
+        <Btn onClick={save}>Save</Btn>
+      </div>
+    </Sheet>
+  );
+}
+
+function LicenseView({ ctx }) {
+  const { data } = ctx;
+  const [q, setQ] = useState("");
+  const [form, setForm] = useState(null);
+  const canEdit = hasPerm(ctx, "documents", "edit");
+
+  const sorted = [...data.licenses].filter((l) => inScope(ctx, l.companyId)).sort((a, b) => (a.expiredDate || "").localeCompare(b.expiredDate || ""));
+  const filtered = sorted.filter((l) => {
+    const co = data.companies.find((c) => c.id === l.companyId);
+    const hay = `${l.docNo} ${l.name} ${l.issuedBy} ${co?.name || ""}`.toLowerCase();
+    return hay.includes(q.toLowerCase());
+  });
+
+  return (
+    <div>
+      <div style={{ padding: "0 18px 10px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <span style={{ fontSize: 12.5, color: T.muted }}>{sorted.length} records</span>
+        {canEdit && <Btn small onClick={() => setForm({})}><Plus size={15} />New</Btn>}
+      </div>
+      <SearchBar value={q} onChange={setQ} placeholder="Search doc no., name, issuer…" />
+      <div style={{ padding: "10px 18px" }}>
+        {filtered.length === 0 && <EmptyState icon={ShieldCheck} color={MODULE_COLORS.documents} title="No license or inspection records" hint="Add your first license or inspection record." />}
+        {filtered.map((l) => {
+          const co = data.companies.find((c) => c.id === l.companyId);
+          const status = licenseStatusOf(l);
+          return (
+            <div key={l.id} onClick={canEdit ? () => setForm(l) : undefined} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: 14, marginBottom: 8, cursor: canEdit ? "pointer" : "default" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: 14.5, color: T.ink }}>{l.docNo} · {l.name}</span>
+                <Pill tone={licenseTone(status)}>{status}</Pill>
+              </div>
+              {co && <div style={{ fontSize: 12.5, color: T.ink2, marginTop: 4 }}>{co.name}</div>}
+              <div style={{ fontSize: 12, color: T.muted, marginTop: 6 }}>Issued by {l.issuedBy || "—"} · {fmtDate(l.issueDate)} → {fmtDate(l.expiredDate)}</div>
+              {l.expiredDate && <div style={{ fontSize: 12, color: T.muted, marginTop: 2 }}>Renew by {fmtDate(renewDateOf(l))}</div>}
+            </div>
+          );
+        })}
+      </div>
+      {form && <LicenseForm initial={form} ctx={ctx} onClose={() => setForm(null)} />}
+    </div>
+  );
+}
+
+function LicenseForm({ initial, ctx, onClose }) {
+  const { update } = ctx;
+  const [l, setL] = useState({
+    companyId: ctx.scopeCompanyId && ctx.scopeCompanyId !== "__unassigned__" ? ctx.scopeCompanyId : "",
+    docNo: "", name: "", issuedBy: "", issueDate: todayISO(), expiredDate: "", status: LICENSE_STATUSES[0],
+    ...initial,
+  });
+
+  const save = () => {
+    if (!l.docNo.trim() || !l.name.trim()) return;
+    update("licenses", (prev) => l.id && prev.some((x) => x.id === l.id) ? prev.map((x) => (x.id === l.id ? l : x)) : [...prev, { ...l, id: uid("lic") }]);
+    onClose();
+  };
+  const remove = () => { update("licenses", (prev) => prev.filter((x) => x.id !== l.id)); onClose(); };
+
+  return (
+    <Sheet title={initial.id ? "Edit license/inspection" : "New license/inspection"} onClose={onClose}>
+      <Field label="Related company (optional)">
+        <Select value={l.companyId} onChange={(e) => setL({ ...l, companyId: e.target.value })}>
+          <option value="">— None —</option>
+          {ctx.visibleCompanies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+        </Select>
+      </Field>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+        <Field label="Doc. No."><TextInput value={l.docNo} onChange={(e) => setL({ ...l, docNo: e.target.value })} placeholder="e.g. LIC-01" /></Field>
+        <Field label="Issued by"><TextInput value={l.issuedBy} onChange={(e) => setL({ ...l, issuedBy: e.target.value })} /></Field>
+      </div>
+      <Field label="Name"><TextInput value={l.name} onChange={(e) => setL({ ...l, name: e.target.value })} placeholder="e.g. Fire Safety Certificate" /></Field>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+        <Field label="Issue date"><TextInput type="date" value={l.issueDate} onChange={(e) => setL({ ...l, issueDate: e.target.value })} /></Field>
+        <Field label="Expired date"><TextInput type="date" value={l.expiredDate} onChange={(e) => setL({ ...l, expiredDate: e.target.value })} /></Field>
+      </div>
+      <Field label="Status">
+        <Select value={l.status} onChange={(e) => setL({ ...l, status: e.target.value })}>
+          {LICENSE_STATUSES.map((s) => <option key={s}>{s}</option>)}
+        </Select>
+      </Field>
+      <Field label={`Renew date (auto: Expired date − ${LICENSE_RENEWAL_WINDOW_DAYS} days)`}>
+        <div style={{ ...inputStyle, background: T.bg, color: T.ink2 }}>
+          {l.expiredDate ? fmtDate(renewDateOf(l)) : "Set an expired date first"}
+        </div>
+      </Field>
+      <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
+        {initial.id && hasPerm(ctx, "documents", "delete") && <Btn variant="danger" onClick={remove}><Trash2 size={15} /> Delete</Btn>}
+        <div style={{ flex: 1 }} />
+        <Btn variant="ghost" onClick={onClose}>Cancel</Btn>
+        <Btn onClick={save}>Save</Btn>
+      </div>
+    </Sheet>
+  );
+}
+
+/* ---------------------------------------------------------------
+   SYSTEM ADMINISTRATION
+----------------------------------------------------------------*/
+function SystemAdministrationView({ ctx }) {
+  const [tab, setTab] = useState("backup");
+  const canEdit = hasPerm(ctx, "sysadmin", "edit");
+
+  return (
+    <div>
+      <Header title="System Administration" subtitle="Backup, restore & system-wide settings" icon={Settings} color={MODULE_COLORS.sysadmin} />
+      <div style={{ display: "flex", gap: 6, padding: "10px 18px" }}>
+        {[{ k: "backup", l: "Backup & Restore" }, { k: "datetime", l: "Date & Time" }].map((t) => (
+          <button key={t.k} onClick={() => setTab(t.k)} style={{
+            flex: 1, padding: "10px 8px", borderRadius: 10, border: `1px solid ${tab === t.k ? T.accent : T.border}`,
+            background: tab === t.k ? T.accent : T.surface, color: tab === t.k ? "#fff" : T.ink2,
+            fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit",
+          }}>{t.l}</button>
+        ))}
+      </div>
+      {tab === "backup" ? <BackupRestoreTab ctx={ctx} canEdit={canEdit} /> : <DateTimeSettingsTab ctx={ctx} canEdit={canEdit} />}
+    </div>
+  );
+}
+
+function BackupRestoreTab({ ctx, canEdit }) {
+  const { data } = ctx;
+  const [restoreText, setRestoreText] = useState("");
+  const [pendingBackup, setPendingBackup] = useState(null);
+  const [msg, setMsg] = useState("");
+  const [error, setError] = useState("");
+  const fileInputRef = useRef(null);
+
+  const handleBackup = () => {
+    const payload = {
+      app: "advisory-desk", version: 1, exportedAt: new Date().toISOString(),
+      data: Object.fromEntries(KEYS.map((k) => [k, data[k]])),
+    };
+    downloadBlob(new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" }), `advisory-desk-backup-${todayISO()}.json`);
+  };
+
+  const onPickFile = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setMsg(""); setError(""); setPendingBackup(null); setRestoreText("");
+    try {
+      const text = await file.text();
+      const parsed = JSON.parse(text);
+      if (!parsed || typeof parsed.data !== "object") throw new Error("bad shape");
+      setPendingBackup(parsed);
+    } catch {
+      setError("Couldn't read that file — make sure it's a backup .json file downloaded from this page.");
+    } finally {
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
+
+  const doRestore = () => {
+    if (!pendingBackup) return;
+    if (!window.confirm("This will overwrite ALL data in Advisory Desk for every user with the contents of this backup file. This cannot be undone. Continue?")) return;
+    KEYS.forEach((k) => {
+      if (k in pendingBackup.data) ctx.update(k, pendingBackup.data[k]);
+    });
+    setMsg(`Restored backup from ${pendingBackup.exportedAt ? fmtDate(pendingBackup.exportedAt.slice(0, 10)) : "unknown date"}.`);
+    setPendingBackup(null);
+    setRestoreText("");
+  };
+
+  return (
+    <div style={{ padding: "0 18px 20px" }}>
+      <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 14, padding: 16, marginBottom: 14 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+          <Database size={17} color={T.accent} />
+          <span style={{ fontWeight: 700, fontSize: 14.5, color: T.ink }}>Backup</span>
+        </div>
+        <div style={{ fontSize: 12.5, color: T.muted, marginBottom: 12 }}>
+          Download every record in Advisory Desk (companies, visits, improvement plans, meeting logs, users, permissions, and more) as one JSON file.
+        </div>
+        <Btn small onClick={handleBackup}><Download size={14} /> Download Backup</Btn>
+      </div>
+
+      <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 14, padding: 16 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+          <Upload size={17} color={T.red} />
+          <span style={{ fontWeight: 700, fontSize: 14.5, color: T.ink }}>Restore</span>
+        </div>
+        {!canEdit ? (
+          <div style={{ fontSize: 12.5, color: T.muted }}>You don't have permission to restore backups.</div>
+        ) : (
+          <>
+            <div style={{ fontSize: 12.5, color: T.muted, marginBottom: 12 }}>
+              Upload a backup file to replace all current data. This affects every user and cannot be undone.
+            </div>
+            <Btn variant="ghost" small onClick={() => fileInputRef.current?.click()}><Upload size={14} /> Choose Backup File</Btn>
+            <input ref={fileInputRef} type="file" accept=".json" onChange={onPickFile} style={{ display: "none" }} />
+            {pendingBackup && (
+              <div style={{ marginTop: 12, padding: 12, background: T.redSoft, borderRadius: 10 }}>
+                <div style={{ fontSize: 12.5, color: T.ink2, marginBottom: 8 }}>
+                  Loaded backup exported {pendingBackup.exportedAt ? fmtDate(pendingBackup.exportedAt.slice(0, 10)) : "at an unknown date"}.
+                  Type <b>RESTORE</b> below to confirm you want to overwrite all current data.
+                </div>
+                <TextInput value={restoreText} onChange={(e) => setRestoreText(e.target.value)} placeholder="Type RESTORE to confirm" style={{ marginBottom: 8 }} />
+                <Btn variant="danger" small disabled={restoreText !== "RESTORE"} onClick={doRestore}><Trash2 size={14} /> Restore Now (Overwrites Everything)</Btn>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+      {msg && <div style={{ fontSize: 12.5, color: T.green, fontWeight: 600, marginTop: 12 }}>{msg}</div>}
+      {error && <div style={{ fontSize: 12.5, color: T.red, fontWeight: 600, marginTop: 12 }}>{error}</div>}
+    </div>
+  );
+}
+
+function DateTimeSettingsTab({ ctx, canEdit }) {
+  const { data } = ctx;
+  const [timeZone, setTimeZone] = useState(data.systemSettings?.timeZone || "UTC");
+  const [preview, setPreview] = useState("");
+  const [saved, setSaved] = useState(false);
+
+  const timeZones = useMemo(() => {
+    try {
+      return Intl.supportedValuesOf("timeZone");
+    } catch {
+      return ["UTC", "Asia/Phnom_Penh", "Asia/Bangkok", "Asia/Singapore", "Asia/Tokyo", "Europe/London", "America/New_York"];
+    }
+  }, []);
+
+  useEffect(() => {
+    const format = () => {
+      try {
+        setPreview(new Intl.DateTimeFormat(undefined, { timeZone, dateStyle: "full", timeStyle: "long" }).format(new Date()));
+      } catch {
+        setPreview("Unknown time zone");
+      }
+    };
+    format();
+    const interval = setInterval(format, 1000);
+    return () => clearInterval(interval);
+  }, [timeZone]);
+
+  const save = () => {
+    ctx.update("systemSettings", (prev) => ({ ...(prev || {}), timeZone }));
+    setSaved(true);
+  };
+
+  return (
+    <div style={{ padding: "0 18px 20px" }}>
+      <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 14, padding: 16 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+          <Clock size={17} color={T.accent} />
+          <span style={{ fontWeight: 700, fontSize: 14.5, color: T.ink }}>System Time Zone</span>
+        </div>
+        <div style={{ fontSize: 12.5, color: T.muted, marginBottom: 12 }}>
+          Sets the reference time zone shown to everyone using Advisory Desk.
+        </div>
+        <Field label="Time zone">
+          <Select value={timeZone} disabled={!canEdit} onChange={(e) => { setTimeZone(e.target.value); setSaved(false); }}>
+            {timeZones.map((z) => <option key={z} value={z}>{z}</option>)}
+          </Select>
+        </Field>
+        <div style={{ background: T.bg, borderRadius: 10, padding: 12, marginBottom: canEdit ? 12 : 0 }}>
+          <div style={{ fontSize: 11, color: T.muted, fontWeight: 700, letterSpacing: 0.3, marginBottom: 4 }}>CURRENT DATE/TIME IN THIS ZONE</div>
+          <div style={{ fontSize: 14.5, color: T.ink, fontWeight: 600 }}>{preview}</div>
+        </div>
+        {canEdit && <Btn small onClick={save}>Save Time Zone</Btn>}
+        {saved && <div style={{ fontSize: 12.5, color: T.green, fontWeight: 600, marginTop: 10 }}>Time zone saved.</div>}
+      </div>
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------
    USERS
 ----------------------------------------------------------------*/
 function UsersView({ ctx }) {
@@ -1820,6 +2671,7 @@ function UsersView({ ctx }) {
   return (
     <div>
       <Header title="User Accounts" subtitle={tab === "accounts" ? `${data.users.length} accounts` : "Who can view, edit, or delete each module"}
+        icon={UsersIcon} color={MODULE_COLORS.users}
         action={tab === "accounts" && isAdmin ? <Btn small onClick={() => setForm({})}><Plus size={15} />New</Btn> : null} />
       {isAdmin && (
         <div style={{ display: "flex", gap: 6, padding: "10px 18px" }}>
@@ -2017,21 +2869,42 @@ function ExportBar({ onExcel, onPdf }) {
 /* ---------------------------------------------------------------
    REPORTS
 ----------------------------------------------------------------*/
+const REPORT_TABS = [
+  { k: "companies", l: "Company list" },
+  { k: "caps", l: "Improvement plan" },
+  { k: "visits", l: "Visit logs" },
+  { k: "meetings", l: "Meeting logs" },
+  { k: "committee", l: "Bipartite committee" },
+  { k: "training", l: "Training" },
+  { k: "grievance", l: "Grievance mechanism" },
+  { k: "policies", l: "Policy & procedure" },
+  { k: "licenses", l: "License & inspection" },
+];
+
 function ReportsView({ ctx }) {
   const [tab, setTab] = useState("companies");
   return (
     <div>
-      <Header title="Reports" subtitle="Company list & corrective action tracking" />
-      <div style={{ display: "flex", gap: 6, padding: "10px 18px" }}>
-        {[{ k: "companies", l: "Company list" }, { k: "caps", l: "Corrective actions" }].map((t) => (
+      <Header title="Reports" subtitle="Company list & improvement plan tracking" icon={FileBarChart} color={MODULE_COLORS.reports} />
+      <div style={{ display: "grid", gridTemplateColumns: `repeat(${Math.ceil(REPORT_TABS.length / 2)}, 1fr)`, gap: 6, padding: "10px 18px" }}>
+        {REPORT_TABS.map((t) => (
           <button key={t.k} onClick={() => setTab(t.k)} style={{
-            flex: 1, padding: "10px 8px", borderRadius: 10, border: `1px solid ${tab === t.k ? T.accent : T.border}`,
+            padding: "9px 5px", borderRadius: 10, border: `1px solid ${tab === t.k ? T.accent : T.border}`,
             background: tab === t.k ? T.accent : T.surface, color: tab === t.k ? "#fff" : T.ink2,
-            fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit",
+            fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", lineHeight: 1.3, textAlign: "center",
+            minWidth: 0, overflowWrap: "break-word",
           }}>{t.l}</button>
         ))}
       </div>
-      {tab === "companies" ? <CompanyReport ctx={ctx} /> : <CapReport ctx={ctx} />}
+      {tab === "companies" && <CompanyReport ctx={ctx} />}
+      {tab === "caps" && <CapReport ctx={ctx} />}
+      {tab === "visits" && <VisitReport ctx={ctx} />}
+      {tab === "meetings" && <MeetingReport ctx={ctx} />}
+      {tab === "committee" && <CommitteeReport ctx={ctx} />}
+      {tab === "training" && <TrainingReport ctx={ctx} />}
+      {tab === "grievance" && <GrievanceReport ctx={ctx} />}
+      {tab === "policies" && <PolicyReport ctx={ctx} />}
+      {tab === "licenses" && <LicenseReport ctx={ctx} />}
     </div>
   );
 }
@@ -2048,13 +2921,13 @@ function CompanyReport({ ctx }) {
     const contacts = c.contacts.map((ct) => `${ct.name} (${ct.position})`).join("; ");
     return {
       "Company": c.name, "Type": c.type, "Address": c.address, "Contacts": contacts,
-      "Advisory Cycles": cycles.length, "Total Actions": caps.length, "Open Actions": openCaps,
+      "Advisory Cycles": cycles.length, "Total Improvement Plans": caps.length, "Open Improvement Plans": openCaps,
     };
   });
   const columns = [
     { key: "Company", label: "Company" }, { key: "Type", label: "Type" }, { key: "Address", label: "Address" },
     { key: "Contacts", label: "Contacts" }, { key: "Advisory Cycles", label: "Cycles" },
-    { key: "Total Actions", label: "Total Actions" }, { key: "Open Actions", label: "Open Actions" },
+    { key: "Total Improvement Plans", label: "Total Plans" }, { key: "Open Improvement Plans", label: "Open Plans" },
   ];
   return (
     <div>
@@ -2083,7 +2956,7 @@ function CompanyReport({ ctx }) {
           </div>
         );
       })}
-      {companiesFiltered.length === 0 && <EmptyState icon={FileBarChart} title="No matching companies" hint="Try a different search or add companies." />}
+      {companiesFiltered.length === 0 && <EmptyState icon={FileBarChart} color={MODULE_COLORS.reports} title="No matching companies" hint="Try a different search or add companies." />}
       </div>
     </div>
   );
@@ -2133,8 +3006,8 @@ function CapReport({ ctx }) {
       </div>
       {rows.length > 0 && (
         <ExportBar
-          onExcel={() => exportExcel(rows, "Corrective Actions", `corrective-action-report-${todayISO()}.xlsx`)}
-          onPdf={() => exportPdf("Corrective Action Plan Report", rows, columns)}
+          onExcel={() => exportExcel(rows, "Improvement Plan", `improvement-plan-report-${todayISO()}.xlsx`)}
+          onPdf={() => exportPdf("Improvement Plan Report", rows, columns)}
         />
       )}
       <div style={{ padding: "0 18px" }}>
@@ -2148,7 +3021,398 @@ function CapReport({ ctx }) {
             <div style={{ fontSize: 12, color: T.muted, marginTop: 3 }}>Target {fmtDate(c.targetDate)} · Actual {fmtDate(c.actualDate)} · {c.progress || 0}% complete</div>
           </div>
         ))}
-        {enriched.length === 0 && <EmptyState icon={FileBarChart} title="No matching corrective actions" hint="Try clearing a filter." />}
+        {enriched.length === 0 && <EmptyState icon={FileBarChart} color={MODULE_COLORS.reports} title="No matching improvement plans" hint="Try clearing a filter." />}
+      </div>
+    </div>
+  );
+}
+
+function VisitReport({ ctx }) {
+  const { data } = ctx;
+  const [companyFilter, setCompanyFilter] = useState("");
+  const enrichedAll = data.visits.map((v) => {
+    const adv = data.advisoryInfo.find((a) => a.id === v.advisoryInfoId);
+    const co = data.companies.find((x) => x.id === adv?.companyId);
+    return { ...v, companyId: co?.id || "", companyName: co?.name || "—" };
+  });
+  const enriched = enrichedAll.filter((v) => {
+    if (!inScope(ctx, v.companyId)) return false;
+    if (companyFilter && v.companyId !== companyFilter) return false;
+    return true;
+  }).sort((a, b) => b.date.localeCompare(a.date));
+  const rows = enriched.map((v) => ({
+    "Visit No.": v.visitNumber, "Company": v.companyName, "Date": fmtDate(v.date),
+    "Start Time": v.startTime, "End Time": v.endTime, "Log": v.log, "Attachments": v.attachmentCount || 0,
+  }));
+  const columns = [
+    { key: "Visit No.", label: "Visit No." }, { key: "Company", label: "Company" }, { key: "Date", label: "Date" },
+    { key: "Start Time", label: "Start" }, { key: "End Time", label: "End" }, { key: "Log", label: "Log" },
+  ];
+  return (
+    <div>
+      <div style={{ padding: "0 18px 10px" }}>
+        <Select value={companyFilter} onChange={(e) => setCompanyFilter(e.target.value)}>
+          <option value="">All companies</option>
+          {ctx.visibleCompanies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+        </Select>
+      </div>
+      {rows.length > 0 && (
+        <ExportBar
+          onExcel={() => exportExcel(rows, "Visit Logs", `visit-logs-report-${todayISO()}.xlsx`)}
+          onPdf={() => exportPdf("Visit Logs Report", rows, columns)}
+        />
+      )}
+      <div style={{ padding: "0 18px" }}>
+        {enriched.map((v) => (
+          <div key={v.id} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: 14, marginBottom: 8 }}>
+            <div style={{ display: "flex", justifyContent: "space-between" }}>
+              <span style={{ fontWeight: 700, fontSize: 14, color: T.ink }}>{v.visitNumber}</span>
+              <span style={{ fontSize: 12, color: T.muted }}>{fmtDate(v.date)}</span>
+            </div>
+            <div style={{ fontSize: 12.5, color: T.ink2, marginTop: 3 }}>{v.companyName}</div>
+            {v.log && <div style={{ fontSize: 12.5, color: T.ink2, marginTop: 6, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{v.log}</div>}
+          </div>
+        ))}
+        {enriched.length === 0 && <EmptyState icon={CalendarClock} color={MODULE_COLORS.visits} title="No matching visits" hint="Try clearing a filter." />}
+      </div>
+    </div>
+  );
+}
+
+function MeetingReport({ ctx }) {
+  const { data } = ctx;
+  const [companyFilter, setCompanyFilter] = useState("");
+  const enriched = data.meetingLogs.filter((m) => {
+    if (!inScope(ctx, m.companyId)) return false;
+    if (companyFilter && m.companyId !== companyFilter) return false;
+    return true;
+  }).sort((a, b) => b.date.localeCompare(a.date));
+  const rows = enriched.map((m) => {
+    const co = data.companies.find((c) => c.id === m.companyId);
+    return {
+      "Date": fmtDate(m.date), "Company": co?.name || "—", "Log": m.log,
+      "Participants": (m.participants || []).join(", "), "Attachments": m.attachmentCount || 0,
+    };
+  });
+  const columns = [
+    { key: "Date", label: "Date" }, { key: "Company", label: "Company" }, { key: "Log", label: "Log" }, { key: "Participants", label: "Participants" },
+  ];
+  return (
+    <div>
+      <div style={{ padding: "0 18px 10px" }}>
+        <Select value={companyFilter} onChange={(e) => setCompanyFilter(e.target.value)}>
+          <option value="">All companies</option>
+          {ctx.visibleCompanies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+        </Select>
+      </div>
+      {rows.length > 0 && (
+        <ExportBar
+          onExcel={() => exportExcel(rows, "Meeting Logs", `meeting-logs-report-${todayISO()}.xlsx`)}
+          onPdf={() => exportPdf("Meeting Logs Report", rows, columns)}
+        />
+      )}
+      <div style={{ padding: "0 18px" }}>
+        {enriched.map((m) => {
+          const co = data.companies.find((c) => c.id === m.companyId);
+          return (
+            <div key={m.id} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: 14, marginBottom: 8 }}>
+              <div style={{ display: "flex", justifyContent: "space-between" }}>
+                <span style={{ fontWeight: 700, fontSize: 14, color: T.ink }}>{fmtDate(m.date)}</span>
+                {co && <Pill tone="accent">{co.name}</Pill>}
+              </div>
+              {m.log && <div style={{ fontSize: 12.5, color: T.ink2, marginTop: 6, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{m.log}</div>}
+            </div>
+          );
+        })}
+        {enriched.length === 0 && <EmptyState icon={MessageSquare} color={MODULE_COLORS.meetings} title="No matching meeting logs" hint="Try clearing a filter." />}
+      </div>
+    </div>
+  );
+}
+
+function CommitteeReport({ ctx }) {
+  const { data } = ctx;
+  const [companyFilter, setCompanyFilter] = useState("");
+  const enriched = data.bipartiteCommittee.filter((b) => {
+    if (!inScope(ctx, b.companyId)) return false;
+    if (companyFilter && b.companyId !== companyFilter) return false;
+    return true;
+  });
+  const rows = enriched.map((b) => {
+    const co = data.companies.find((c) => c.id === b.companyId);
+    return {
+      "Name": b.name, "Company": co?.name || "—", "Sex": b.sex, "Date Joined": fmtDate(b.dateJoined),
+      "Committee Role": b.committeeRole, "Company Role": b.companyRole, "Union Member": b.union, "Phone": b.phone,
+    };
+  });
+  const columns = [
+    { key: "Name", label: "Name" }, { key: "Company", label: "Company" }, { key: "Committee Role", label: "Committee Role" },
+    { key: "Company Role", label: "Company Role" }, { key: "Union Member", label: "Union" }, { key: "Phone", label: "Phone" },
+  ];
+  return (
+    <div>
+      <div style={{ padding: "0 18px 10px" }}>
+        <Select value={companyFilter} onChange={(e) => setCompanyFilter(e.target.value)}>
+          <option value="">All companies</option>
+          {ctx.visibleCompanies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+        </Select>
+      </div>
+      {rows.length > 0 && (
+        <ExportBar
+          onExcel={() => exportExcel(rows, "Bipartite Committee", `bipartite-committee-report-${todayISO()}.xlsx`)}
+          onPdf={() => exportPdf("Bipartite Committee Report", rows, columns)}
+        />
+      )}
+      <div style={{ padding: "0 18px" }}>
+        {enriched.map((b) => {
+          const co = data.companies.find((c) => c.id === b.companyId);
+          return (
+            <div key={b.id} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: 14, marginBottom: 8 }}>
+              <div style={{ display: "flex", justifyContent: "space-between" }}>
+                <span style={{ fontWeight: 700, fontSize: 14, color: T.ink }}>{b.name}</span>
+                <Pill tone="blue">{b.committeeRole}</Pill>
+              </div>
+              <div style={{ fontSize: 12.5, color: T.ink2, marginTop: 3 }}>{co?.name || "—"} · {b.companyRole}</div>
+              <div style={{ fontSize: 12, color: T.muted, marginTop: 3 }}>Joined {fmtDate(b.dateJoined)} · Union: {b.union}</div>
+            </div>
+          );
+        })}
+        {enriched.length === 0 && <EmptyState icon={Scale} color={MODULE_COLORS.committee} title="No matching committee members" hint="Try clearing a filter." />}
+      </div>
+    </div>
+  );
+}
+
+function TrainingReport({ ctx }) {
+  const { data } = ctx;
+  const [statusFilter, setStatusFilter] = useState("All");
+  const [companyFilter, setCompanyFilter] = useState("");
+  const enriched = data.trainings.filter((t) => {
+    if (!inScope(ctx, t.companyId)) return false;
+    if (statusFilter !== "All" && t.status !== statusFilter) return false;
+    if (companyFilter && t.companyId !== companyFilter) return false;
+    return true;
+  }).sort((a, b) => b.date.localeCompare(a.date));
+  const rows = enriched.map((t) => {
+    const co = data.companies.find((c) => c.id === t.companyId);
+    return {
+      "Topic": t.topic, "Company": co?.name || "—", "Trainer": t.trainer, "Date": fmtDate(t.date),
+      "Start Time": t.startTime, "End Time": t.endTime, "Delivery Mode": t.deliveryMode, "Status": t.status,
+      "Location": t.location, "Participants": (t.participants || []).join(", "), "Notes": t.notes,
+    };
+  });
+  const columns = [
+    { key: "Topic", label: "Topic" }, { key: "Company", label: "Company" }, { key: "Trainer", label: "Trainer" },
+    { key: "Date", label: "Date" }, { key: "Delivery Mode", label: "Mode" }, { key: "Status", label: "Status" }, { key: "Participants", label: "Participants" },
+  ];
+  return (
+    <div>
+      <div style={{ display: "flex", gap: 8, padding: "0 18px 10px" }}>
+        <Select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} style={{ flex: 1 }}>
+          <option value="All">All statuses</option>
+          {TRAINING_STATUSES.map((s) => <option key={s}>{s}</option>)}
+        </Select>
+        <Select value={companyFilter} onChange={(e) => setCompanyFilter(e.target.value)} style={{ flex: 1 }}>
+          <option value="">All companies</option>
+          {ctx.visibleCompanies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+        </Select>
+      </div>
+      {rows.length > 0 && (
+        <ExportBar
+          onExcel={() => exportExcel(rows, "Training", `training-report-${todayISO()}.xlsx`)}
+          onPdf={() => exportPdf("Training Report", rows, columns)}
+        />
+      )}
+      <div style={{ padding: "0 18px" }}>
+        {enriched.map((t) => {
+          const co = data.companies.find((c) => c.id === t.companyId);
+          return (
+            <div key={t.id} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: 14, marginBottom: 8 }}>
+              <div style={{ display: "flex", justifyContent: "space-between" }}>
+                <span style={{ fontWeight: 700, fontSize: 14, color: T.ink }}>{t.topic}</span>
+                <Pill tone={trainingTone(t.status)}>{t.status}</Pill>
+              </div>
+              <div style={{ fontSize: 12.5, color: T.ink2, marginTop: 3 }}>{co?.name || "—"}</div>
+              <div style={{ fontSize: 12, color: T.muted, marginTop: 3 }}>{fmtDate(t.date)} · {t.startTime}–{t.endTime} · {t.deliveryMode} · Trainer: {t.trainer || "—"}</div>
+            </div>
+          );
+        })}
+        {enriched.length === 0 && <EmptyState icon={GraduationCap} color={MODULE_COLORS.training} title="No matching training sessions" hint="Try clearing a filter." />}
+      </div>
+    </div>
+  );
+}
+
+function GrievanceReport({ ctx }) {
+  const { data } = ctx;
+  const [statusFilter, setStatusFilter] = useState("All");
+  const [companyFilter, setCompanyFilter] = useState("");
+  const enriched = data.grievances.filter((g) => {
+    if (!inScope(ctx, g.companyId)) return false;
+    if (statusFilter !== "All" && g.status !== statusFilter) return false;
+    if (companyFilter && g.companyId !== companyFilter) return false;
+    return true;
+  }).sort((a, b) => b.dateReported.localeCompare(a.dateReported));
+  const rows = enriched.map((g) => {
+    const co = data.companies.find((c) => c.id === g.companyId);
+    return {
+      "Date Reported": fmtDate(g.dateReported), "Company": co?.name || "—", "Category": g.category, "Channel": g.channel,
+      "Description": g.description, "Reported By": g.reportedBy || "Anonymous", "Status": g.status,
+      "Assigned To": g.assignedTo, "Resolution": g.resolution, "Resolved Date": fmtDate(g.resolvedDate),
+    };
+  });
+  const columns = [
+    { key: "Date Reported", label: "Date" }, { key: "Company", label: "Company" }, { key: "Category", label: "Category" },
+    { key: "Status", label: "Status" }, { key: "Reported By", label: "Reported By" }, { key: "Assigned To", label: "Assigned To" },
+  ];
+  return (
+    <div>
+      <div style={{ display: "flex", gap: 8, padding: "0 18px 10px" }}>
+        <Select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} style={{ flex: 1 }}>
+          <option value="All">All statuses</option>
+          {GRIEVANCE_STATUSES.map((s) => <option key={s}>{s}</option>)}
+        </Select>
+        <Select value={companyFilter} onChange={(e) => setCompanyFilter(e.target.value)} style={{ flex: 1 }}>
+          <option value="">All companies</option>
+          {ctx.visibleCompanies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+        </Select>
+      </div>
+      {rows.length > 0 && (
+        <ExportBar
+          onExcel={() => exportExcel(rows, "Grievance Mechanism", `grievance-report-${todayISO()}.xlsx`)}
+          onPdf={() => exportPdf("Grievance Mechanism Report", rows, columns)}
+        />
+      )}
+      <div style={{ padding: "0 18px" }}>
+        {enriched.map((g) => {
+          const co = data.companies.find((c) => c.id === g.companyId);
+          return (
+            <div key={g.id} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: 14, marginBottom: 8 }}>
+              <div style={{ display: "flex", justifyContent: "space-between" }}>
+                <span style={{ fontWeight: 700, fontSize: 14, color: T.ink }}>{g.category}</span>
+                <Pill tone={grievanceTone(g.status)}>{g.status}</Pill>
+              </div>
+              <div style={{ fontSize: 12.5, color: T.ink2, marginTop: 3 }}>{co?.name || "—"}</div>
+              {g.description && <div style={{ fontSize: 12.5, color: T.ink2, marginTop: 6, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{g.description}</div>}
+              <div style={{ fontSize: 12, color: T.muted, marginTop: 6 }}>Reported {fmtDate(g.dateReported)} · {g.reportedBy || "Anonymous"} · via {g.channel}</div>
+            </div>
+          );
+        })}
+        {enriched.length === 0 && <EmptyState icon={Megaphone} color={MODULE_COLORS.grievance} title="No matching grievances" hint="Try clearing a filter." />}
+      </div>
+    </div>
+  );
+}
+
+function PolicyReport({ ctx }) {
+  const { data } = ctx;
+  const [typeFilter, setTypeFilter] = useState("All");
+  const [companyFilter, setCompanyFilter] = useState("");
+  const enriched = data.policies.filter((p) => {
+    if (!inScope(ctx, p.companyId)) return false;
+    if (typeFilter !== "All" && p.type !== typeFilter) return false;
+    if (companyFilter && p.companyId !== companyFilter) return false;
+    return true;
+  }).sort((a, b) => (b.releasedDate || "").localeCompare(a.releasedDate || ""));
+  const rows = enriched.map((p) => {
+    const co = data.companies.find((c) => c.id === p.companyId);
+    return {
+      "Code": p.code, "Name": p.name, "Company": co?.name || "—", "Version": p.version,
+      "Released Date": fmtDate(p.releasedDate), "Type": p.type, "Remark": p.remark,
+    };
+  });
+  const columns = [
+    { key: "Code", label: "Code" }, { key: "Name", label: "Name" }, { key: "Company", label: "Company" },
+    { key: "Version", label: "Version" }, { key: "Released Date", label: "Released" }, { key: "Type", label: "Type" },
+  ];
+  return (
+    <div>
+      <div style={{ display: "flex", gap: 8, padding: "0 18px 10px" }}>
+        <Select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} style={{ flex: 1 }}>
+          <option value="All">All types</option>
+          {DOC_TYPES.map((t) => <option key={t}>{t}</option>)}
+        </Select>
+        <Select value={companyFilter} onChange={(e) => setCompanyFilter(e.target.value)} style={{ flex: 1 }}>
+          <option value="">All companies</option>
+          {ctx.visibleCompanies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+        </Select>
+      </div>
+      {rows.length > 0 && (
+        <ExportBar
+          onExcel={() => exportExcel(rows, "Policy & Procedure", `policy-procedure-report-${todayISO()}.xlsx`)}
+          onPdf={() => exportPdf("Policy & Procedure Report", rows, columns)}
+        />
+      )}
+      <div style={{ padding: "0 18px" }}>
+        {enriched.map((p) => {
+          const co = data.companies.find((c) => c.id === p.companyId);
+          return (
+            <div key={p.id} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: 14, marginBottom: 8 }}>
+              <div style={{ display: "flex", justifyContent: "space-between" }}>
+                <span style={{ fontWeight: 700, fontSize: 14, color: T.ink }}>{p.code} · {p.name}</span>
+                <Pill tone="accent">{p.type}</Pill>
+              </div>
+              <div style={{ fontSize: 12.5, color: T.ink2, marginTop: 3 }}>{co?.name || "—"}</div>
+              <div style={{ fontSize: 12, color: T.muted, marginTop: 3 }}>Version {p.version || "—"} · Released {fmtDate(p.releasedDate)}</div>
+            </div>
+          );
+        })}
+        {enriched.length === 0 && <EmptyState icon={FileText} color={MODULE_COLORS.documents} title="No matching policies" hint="Try clearing a filter." />}
+      </div>
+    </div>
+  );
+}
+
+function LicenseReport({ ctx }) {
+  const { data } = ctx;
+  const [companyFilter, setCompanyFilter] = useState("");
+  const enriched = data.licenses.filter((l) => {
+    if (!inScope(ctx, l.companyId)) return false;
+    if (companyFilter && l.companyId !== companyFilter) return false;
+    return true;
+  }).sort((a, b) => (a.expiredDate || "").localeCompare(b.expiredDate || ""));
+  const rows = enriched.map((l) => {
+    const co = data.companies.find((c) => c.id === l.companyId);
+    return {
+      "Doc No.": l.docNo, "Name": l.name, "Company": co?.name || "—", "Issued By": l.issuedBy,
+      "Issue Date": fmtDate(l.issueDate), "Expired Date": fmtDate(l.expiredDate),
+      "Status": licenseStatusOf(l), "Renew Date": l.expiredDate ? fmtDate(renewDateOf(l)) : "",
+    };
+  });
+  const columns = [
+    { key: "Doc No.", label: "Doc No." }, { key: "Name", label: "Name" }, { key: "Company", label: "Company" },
+    { key: "Issued By", label: "Issued By" }, { key: "Expired Date", label: "Expired" }, { key: "Status", label: "Status" }, { key: "Renew Date", label: "Renew By" },
+  ];
+  return (
+    <div>
+      <div style={{ padding: "0 18px 10px" }}>
+        <Select value={companyFilter} onChange={(e) => setCompanyFilter(e.target.value)}>
+          <option value="">All companies</option>
+          {ctx.visibleCompanies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+        </Select>
+      </div>
+      {rows.length > 0 && (
+        <ExportBar
+          onExcel={() => exportExcel(rows, "License & Inspection", `license-inspection-report-${todayISO()}.xlsx`)}
+          onPdf={() => exportPdf("License & Inspection Report", rows, columns)}
+        />
+      )}
+      <div style={{ padding: "0 18px" }}>
+        {enriched.map((l) => {
+          const co = data.companies.find((c) => c.id === l.companyId);
+          const status = licenseStatusOf(l);
+          return (
+            <div key={l.id} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: 14, marginBottom: 8 }}>
+              <div style={{ display: "flex", justifyContent: "space-between" }}>
+                <span style={{ fontWeight: 700, fontSize: 14, color: T.ink }}>{l.docNo} · {l.name}</span>
+                <Pill tone={licenseTone(status)}>{status}</Pill>
+              </div>
+              <div style={{ fontSize: 12.5, color: T.ink2, marginTop: 3 }}>{co?.name || "—"}</div>
+              <div style={{ fontSize: 12, color: T.muted, marginTop: 3 }}>Issued by {l.issuedBy || "—"} · {fmtDate(l.issueDate)} → {fmtDate(l.expiredDate)}</div>
+            </div>
+          );
+        })}
+        {enriched.length === 0 && <EmptyState icon={ShieldCheck} color={MODULE_COLORS.documents} title="No matching license/inspection records" hint="Try clearing a filter." />}
       </div>
     </div>
   );

@@ -1,4 +1,4 @@
-# Advisory Desk
+# Advisory Management System
 
 A mobile-first advisory service management app: companies, advisory cycles,
 visits, assessment plans, corrective actions, meeting logs, a bipartite
