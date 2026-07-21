@@ -7,7 +7,8 @@ import {
   CheckCircle2, Circle, MoreHorizontal, ArrowLeft, Phone, Mail, MapPin,
   Trash2, Pencil, TrendingUp, FileText, LogIn, Paperclip, Image as ImageIcon,
   Download, Printer, Eye, EyeOff, Lock, MessageSquare, Scale, Filter, BookOpen,
-  Upload, Settings, Database, GraduationCap, Megaphone, FolderOpen, ShieldCheck
+  Upload, Settings, Database, GraduationCap, Megaphone, FolderOpen, ShieldCheck,
+  ListChecks, ClipboardCheck
 } from "lucide-react";
 
 /* ---------------------------------------------------------------
@@ -59,7 +60,7 @@ const MODULE_COLORS = {
   dashboard: T.accent, companies: T.blue, visits: T.green, caps: T.amber,
   advisory: T.purple, assessment: T.cyan, meetings: T.rose, committee: T.blue,
   caprecs: T.amber, training: T.green, grievance: T.red, documents: T.brown,
-  users: T.slate, reports: T.cyan, sysadmin: T.slate,
+  users: T.slate, reports: T.cyan, sysadmin: T.slate, risk: T.red,
 };
 
 const uid = (p = "id") => `${p}_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
@@ -126,6 +127,12 @@ function seedData() {
   const companyId = uid("co");
   const advisoryId = uid("adv");
   const apId = uid("ap");
+  const capId = uid("cap");
+  const checklistQs = [
+    { id: uid("aq"), questionNo: "Q-01", question: "Are all emergency exits unobstructed and clearly marked?", category: "OSH", legalReference: "Labor Law Art. 137" },
+    { id: uid("aq"), questionNo: "Q-02", question: "Are workers paid at least the applicable minimum wage on time?", category: "Wages and Benefits", legalReference: "Labor Law Art. 104" },
+    { id: uid("aq"), questionNo: "Q-03", question: "Is overtime voluntary and backed by documented worker consent?", category: "Working Time", legalReference: "Labor Law Art. 139" },
+  ];
   return {
     companies: [
       {
@@ -141,7 +148,7 @@ function seedData() {
       { id: uid("v"), advisoryInfoId: advisoryId, visitNumber: "V-01", date: "2026-02-10", startTime: "09:00", endTime: "12:00", log: "Opening meeting and factory walkthrough completed." },
     ],
     assessmentPlans: [
-      { id: apId, advisoryInfoId: advisoryId, previousAssessmentDate: "2025-08-15", planAssessmentDate: "2026-08-15", reportReleasedDate: "", currentNC: 3 },
+      { id: apId, advisoryInfoId: advisoryId, auditNo: "AUD-2026-01", previousAssessmentDate: "2025-08-15", planAssessmentDate: "2026-08-15", auditType: "Social Compliance", status: "Planned", reportReleasedDate: "", currentNC: 3 },
     ],
     users: [
       { id: uid("u"), name: "Dara Pich", username: "dpich", email: "dara@advisoryco.com", role: "admin", password: "admin123" },
@@ -150,7 +157,7 @@ function seedData() {
       { id: uid("u"), name: "Sokha Chan", username: "schan", email: "sokha@meridianapparel.com", role: "user", companyId, password: "company123" },
     ],
     caps: [
-      { id: uid("cap"), assessmentPlanId: apId, ncNumber: "NC-01", area: "Fire Safety", rootCause: "Blocked emergency exits in Building B.", correctiveActions: "Clear exits, install signage, retrain floor staff.", leadPerson: "Sokha Chan", supportPerson: "Vichet Ros", targetDate: "2026-08-01", actualDate: "", status: "In Progress", progress: 60, recommendations: "Add monthly self-audit checklist." },
+      { id: capId, assessmentPlanId: apId, ncNumber: "NC-01", area: "Fire Safety", rootCause: "Blocked emergency exits in Building B.", correctiveActions: "Clear exits, install signage, retrain floor staff.", leadPerson: "Sokha Chan", supportPerson: "Vichet Ros", targetDate: "2026-08-01", actualDate: "", status: "In Progress", progress: 60, recommendations: "Add monthly self-audit checklist." },
     ],
     meetingLogs: [
       { id: uid("ml"), companyId, date: "2026-02-10", log: "Discussed grievance handling procedure and upcoming fire drill schedule.", participants: ["Sokha Chan", "Vichet Ros", "Floor Supervisor"] },
@@ -192,6 +199,28 @@ function seedData() {
     ],
     permissions: defaultPermissions(),
     systemSettings: { timeZone: "UTC" },
+    auditChecklists: checklistQs,
+    auditRecords: [
+      {
+        id: uid("ar"), companyId, auditDate: "2026-02-20", auditType: "Social Compliance",
+        ncs: [{ id: uid("nc"), description: "Emergency exit in Building B partially blocked by stored materials.", severity: "Major", status: "Open" }],
+      },
+    ],
+    selfAssessments: [
+      {
+        id: uid("sa"), companyId, assignedDate: "2026-03-01", dueDate: "2026-03-15", status: "Draft",
+        questions: checklistQs.map((q) => ({ questionId: q.id, questionNo: q.questionNo, question: q.question, category: q.category, answer: "", remark: "" })),
+      },
+    ],
+    riskAssessments: [
+      {
+        id: uid("ra"), companyId, riskNo: "RA-01", date: "2026-02-20", area: "Building B — Sewing Floor", category: "OSH",
+        hazard: "Blocked emergency exit", description: "Emergency exit partially blocked by stored fabric rolls, delaying evacuation in a fire.",
+        likelihood: 3, severity: 4, existingControls: "Monthly fire drill; exit signage installed.",
+        recommendedActions: "Relocate stored materials away from all exit routes; assign a daily housekeeping check.",
+        assignedTo: "Vichet Ros", targetDate: "2026-03-15", actualCompletionDate: "", status: "Open", linkedCapId: capId,
+      },
+    ],
   };
 }
 
@@ -206,7 +235,8 @@ const PERMISSION_MODULES = [
   { key: "companies", label: "Companies" },
   { key: "advisory", label: "Advisory Cycles" },
   { key: "visits", label: "Advisory Visits" },
-  { key: "assessment", label: "Assessment/Audit" },
+  { key: "assessment", label: "Audit Management" },
+  { key: "risk", label: "Risk Assessment" },
   { key: "caps", label: "Improvement Plan (CAP)" },
   { key: "meetings", label: "Meeting Logs" },
   { key: "committee", label: "Bipartite Committee" },
@@ -226,17 +256,17 @@ function defaultPermissions() {
   const none = { view: false, edit: false, delete: false };
   return {
     manager: {
-      companies: full, advisory: full, visits: full, assessment: full, caps: full,
+      companies: full, advisory: full, visits: full, assessment: full, risk: full, caps: full,
       meetings: editOnly, committee: editOnly, caprecs: editOnly, reports: viewOnly, sysadmin: none,
       training: editOnly, grievance: editOnly, documents: editOnly,
     },
     officer: {
-      companies: viewOnly, advisory: viewOnly, visits: editOnly, assessment: viewOnly, caps: editOnly,
+      companies: viewOnly, advisory: viewOnly, visits: editOnly, assessment: viewOnly, risk: editOnly, caps: editOnly,
       meetings: editOnly, committee: viewOnly, caprecs: viewOnly, reports: viewOnly, sysadmin: none,
       training: editOnly, grievance: editOnly, documents: editOnly,
     },
     user: {
-      companies: viewOnly, advisory: viewOnly, visits: viewOnly, assessment: viewOnly, caps: viewOnly,
+      companies: viewOnly, advisory: viewOnly, visits: viewOnly, assessment: viewOnly, risk: viewOnly, caps: viewOnly,
       meetings: viewOnly, committee: viewOnly, caprecs: none, reports: viewOnly, sysadmin: none,
       training: viewOnly, grievance: viewOnly, documents: viewOnly,
     },
@@ -258,11 +288,11 @@ function inScope(ctx, companyId) {
 /* ---------------------------------------------------------------
    STORAGE HOOK
 ----------------------------------------------------------------*/
-const KEYS = ["companies", "advisoryInfo", "visits", "assessmentPlans", "users", "caps", "meetingLogs", "bipartiteCommittee", "capRecommendations", "permissions", "systemSettings", "trainings", "grievances", "policies", "licenses"];
+const KEYS = ["companies", "advisoryInfo", "visits", "assessmentPlans", "users", "caps", "meetingLogs", "bipartiteCommittee", "capRecommendations", "permissions", "systemSettings", "trainings", "grievances", "policies", "licenses", "auditChecklists", "auditRecords", "selfAssessments", "riskAssessments"];
 
 const CAP_CLUSTERS = [
   "Child Labor", "Forced Labor", "Discrimination and Harassment", "FoA & CBA",
-  "Employment Contract and HR", "Working Time", "Wages and Benefits", "OSH", "Others",
+  "Employment Contract and HR", "Working Time", "Wages and Benefits", "OSH", "Management System", "Others",
 ];
 
 const TRAINING_DELIVERY_MODES = ["Onsite", "Online", "Hybrid"];
@@ -278,6 +308,29 @@ const GRIEVANCE_STATUSES = ["Open", "Under Investigation", "Resolved", "Closed"]
 const DOC_TYPES = ["Policy", "Procedure", "Guideline", "Form", "Other"];
 const LICENSE_STATUSES = ["Valid", "Renewed", "Cancelled"];
 const LICENSE_RENEWAL_WINDOW_DAYS = 30;
+
+const AUDIT_TYPES = ["Internal", "Social Compliance", "Quality", "Safety (OSH)", "Environmental", "Customer/Brand", "Other"];
+const AUDIT_PLAN_STATUSES = ["Planned", "Scheduled", "In Progress", "Completed", "Cancelled"];
+const AUDIT_NC_SEVERITIES = ["Minor", "Major", "Critical"];
+const AUDIT_NC_STATUSES = ["Open", "Closed"];
+const SELF_ASSESSMENT_STATUSES = ["Draft", "Submitted", "Reviewed"];
+const SELF_ASSESSMENT_ANSWERS = ["Compliant", "Non-Compliant", "N/A"];
+
+const RISK_LIKELIHOOD_LABELS = ["Rare", "Unlikely", "Possible", "Likely", "Almost Certain"];
+const RISK_SEVERITY_LABELS = ["Negligible", "Minor", "Moderate", "Major", "Catastrophic"];
+const RISK_STATUSES = ["Open", "In Progress", "Closed"];
+// Likelihood x severity are both 1-5, so the only achievable scores are
+// 1-6, 8-10, 12-15, 16-25 — 7 and 11 can never occur (neither factors as
+// two numbers 1-5), so these plain thresholds cover every real score.
+function riskLevelOf(score) {
+  if (score >= 16) return "Very High";
+  if (score >= 12) return "High";
+  if (score >= 8) return "Medium";
+  return "Low";
+}
+function riskLevelTone(level) {
+  return level === "Very High" ? "red" : level === "High" ? "rose" : level === "Medium" ? "amber" : "green";
+}
 
 function addDays(dateStr, days) {
   if (!dateStr) return "";
@@ -561,7 +614,8 @@ export default function App() {
   ].filter((n) => !n.perm || hasPerm(ctx, n.perm, "view"));
   const MORE_NAV = [
     { key: "advisory", label: "Advisory Cycles", icon: ClipboardList, perm: "advisory", color: MODULE_COLORS.advisory },
-    { key: "assessment", label: "Assessment/Audit", icon: FileText, perm: "assessment", color: MODULE_COLORS.assessment },
+    { key: "assessment", label: "Audit Management", icon: ClipboardCheck, perm: "assessment", color: MODULE_COLORS.assessment },
+    { key: "risk", label: "Risk Assessment", icon: AlertTriangle, perm: "risk", color: MODULE_COLORS.risk },
     { key: "meetings", label: "Meeting Logs", icon: MessageSquare, perm: "meetings", color: MODULE_COLORS.meetings },
     { key: "committee", label: "Bipartite Committee", icon: Scale, perm: "committee", color: MODULE_COLORS.committee },
     { key: "caprecs", label: "CAP Recommendations", icon: BookOpen, perm: "caprecs", color: MODULE_COLORS.caprecs },
@@ -584,13 +638,16 @@ export default function App() {
     );
   } else if (detail?.type === "company") Body = <CompanyDetail id={detail.id} ctx={ctx} onBack={() => setDetail(null)} />;
   else if (detail?.type === "advisory") Body = <AdvisoryDetail id={detail.id} ctx={ctx} onBack={() => setDetail(null)} />;
-  else if (detail?.type === "assessment") Body = <AssessmentDetail id={detail.id} ctx={ctx} onBack={() => setDetail(null)} />;
+  else if (detail?.type === "assessment") Body = <AuditPlanDetail id={detail.id} ctx={ctx} onBack={() => setDetail(null)} />;
+  else if (detail?.type === "auditRecord") Body = <AuditRecordDetail id={detail.id} ctx={ctx} onBack={() => setDetail(null)} />;
+  else if (detail?.type === "selfAssessment") Body = <SelfAssessmentDetail id={detail.id} ctx={ctx} onBack={() => setDetail(null)} />;
   else if (tab === "dashboard") Body = <Dashboard ctx={ctx} goto={(t) => { setTab(t); setDetail(null); }} />;
   else if (tab === "companies" && hasPerm(ctx, "companies", "view")) Body = <CompaniesView ctx={ctx} />;
   else if (tab === "visits" && hasPerm(ctx, "visits", "view")) Body = <VisitsView ctx={ctx} />;
   else if (tab === "caps" && hasPerm(ctx, "caps", "view")) Body = <CapsView ctx={ctx} />;
   else if (tab === "advisory" && hasPerm(ctx, "advisory", "view")) Body = <AdvisoryView ctx={ctx} />;
-  else if (tab === "assessment" && hasPerm(ctx, "assessment", "view")) Body = <AssessmentView ctx={ctx} />;
+  else if (tab === "assessment" && hasPerm(ctx, "assessment", "view")) Body = <AuditManagementView ctx={ctx} />;
+  else if (tab === "risk" && hasPerm(ctx, "risk", "view")) Body = <RiskAssessmentView ctx={ctx} />;
   else if (tab === "meetings" && hasPerm(ctx, "meetings", "view")) Body = <MeetingLogsView ctx={ctx} />;
   else if (tab === "committee" && hasPerm(ctx, "committee", "view")) Body = <BipartiteCommitteeView ctx={ctx} />;
   else if (tab === "caprecs" && hasPerm(ctx, "caprecs", "view")) Body = <CapRecommendationsView ctx={ctx} />;
@@ -896,15 +953,15 @@ function Dashboard({ ctx, goto }) {
         })}
       </div>
 
-      <SectionLabel>Upcoming assessments</SectionLabel>
+      <SectionLabel>Upcoming audits</SectionLabel>
       <div style={{ padding: "0 18px" }}>
-        {upcomingAssess.length === 0 && <EmptyRow text="No assessments scheduled." />}
+        {upcomingAssess.length === 0 && <EmptyRow text="No audits scheduled." />}
         {upcomingAssess.map((a) => {
           const adv = data.advisoryInfo.find((x) => x.id === a.advisoryInfoId);
           const co = data.companies.find((c) => c.id === adv?.companyId);
           return (
-            <Row key={a.id} onClick={() => ctx.setDetail({ type: "assessment", id: a.id })} left={<FileText size={17} color={T.blue} />}
-              title={co?.name || "—"} sub={`Planned ${fmtDate(a.planAssessmentDate)} · ${a.currentNC} open NCs`} />
+            <Row key={a.id} onClick={() => ctx.setDetail({ type: "assessment", id: a.id })} left={<ClipboardCheck size={17} color={T.blue} />}
+              title={`${a.auditNo || co?.name || "—"}`} sub={`${co?.name || "—"} · Planned ${fmtDate(a.planAssessmentDate)}`} />
           );
         })}
       </div>
@@ -998,13 +1055,16 @@ function deleteCompanyCascade(ctx, id) {
     grievances: data.grievances.filter((g) => g.companyId === id).length,
     policies: data.policies.filter((p) => p.companyId === id).length,
     licenses: data.licenses.filter((l) => l.companyId === id).length,
+    auditRecords: data.auditRecords.filter((r) => r.companyId === id).length,
+    selfAssessments: data.selfAssessments.filter((s) => s.companyId === id).length,
+    riskAssessments: data.riskAssessments.filter((r) => r.companyId === id).length,
   };
   const total = Object.values(counts).reduce((a, b) => a + b, 0);
   const detail = total === 0 ? "" : ` This also permanently deletes ${total} related record(s): `
     + [
       counts.cycles && `${counts.cycles} advisory cycle(s)`,
       counts.visits && `${counts.visits} visit(s)`,
-      counts.plans && `${counts.plans} assessment plan(s)`,
+      counts.plans && `${counts.plans} audit plan(s)`,
       counts.caps && `${counts.caps} corrective action(s)`,
       counts.meetings && `${counts.meetings} meeting log(s)`,
       counts.committee && `${counts.committee} bipartite committee member(s)`,
@@ -1013,6 +1073,9 @@ function deleteCompanyCascade(ctx, id) {
       counts.grievances && `${counts.grievances} grievance record(s)`,
       counts.policies && `${counts.policies} policy/procedure document(s)`,
       counts.licenses && `${counts.licenses} license/inspection record(s)`,
+      counts.auditRecords && `${counts.auditRecords} recorded audit(s)`,
+      counts.selfAssessments && `${counts.selfAssessments} self-assessment(s)`,
+      counts.riskAssessments && `${counts.riskAssessments} risk assessment(s)`,
     ].filter(Boolean).join(", ") + ".";
   if (!window.confirm(`Delete ${company?.name || "this company"}?${detail} This cannot be undone.`)) return false;
 
@@ -1027,6 +1090,9 @@ function deleteCompanyCascade(ctx, id) {
   update("grievances", (prev) => prev.filter((g) => g.companyId !== id));
   update("policies", (prev) => prev.filter((p) => p.companyId !== id));
   update("licenses", (prev) => prev.filter((l) => l.companyId !== id));
+  update("auditRecords", (prev) => prev.filter((r) => r.companyId !== id));
+  update("selfAssessments", (prev) => prev.filter((s) => s.companyId !== id));
+  update("riskAssessments", (prev) => prev.filter((r) => r.companyId !== id));
   update("companies", (prev) => prev.filter((c) => c.id !== id));
   return true;
 }
@@ -1243,12 +1309,12 @@ function AdvisoryDetail({ id, ctx, onBack }) {
           <Row key={v.id} left={<CalendarClock size={16} color={T.accent} />} title={v.visitNumber} sub={`${fmtDate(v.date)} · ${v.startTime}–${v.endTime}`} />
         ))}
       </div>
-      <SectionLabel>Assessment/Audit</SectionLabel>
+      <SectionLabel>Audit Plan</SectionLabel>
       <div style={{ padding: "0 18px" }}>
-        {plans.length === 0 && <EmptyRow text="No assessment plan yet." />}
+        {plans.length === 0 && <EmptyRow text="No audit plan yet." />}
         {plans.map((p) => (
-          <Row key={p.id} onClick={() => ctx.setDetail({ type: "assessment", id: p.id })} left={<FileText size={16} color={T.blue} />}
-            title={`Planned ${fmtDate(p.planAssessmentDate)}`} sub={`${p.currentNC} open non-compliance`} />
+          <Row key={p.id} onClick={() => ctx.setDetail({ type: "assessment", id: p.id })} left={<ClipboardCheck size={16} color={T.blue} />}
+            title={p.auditNo || `Planned ${fmtDate(p.planAssessmentDate)}`} sub={`${fmtDate(p.planAssessmentDate)} · ${p.status || "Planned"}`} />
         ))}
       </div>
       {form && <AdvisoryForm initial={form} ctx={ctx} onClose={() => setForm(null)} />}
@@ -1428,9 +1494,189 @@ function VisitForm({ initial, ctx, onClose }) {
 }
 
 /* ---------------------------------------------------------------
-   ASSESSMENT PLANS
+   AUDIT MANAGEMENT — Audit Checklist, Audit Plan, Audit Management (records)
 ----------------------------------------------------------------*/
-function AssessmentView({ ctx }) {
+const AUDIT_TABS = [
+  { k: "checklist", l: "Audit Checklist" },
+  { k: "plan", l: "Audit Plan" },
+  { k: "records", l: "Audit Management" },
+  { k: "selfassessment", l: "Self-Assessment" },
+];
+
+function AuditManagementView({ ctx }) {
+  const [tab, setTab] = useState("checklist");
+  return (
+    <div>
+      <Header title="Audit Management" subtitle="Checklists, audit plans & recorded audits" icon={ClipboardCheck} color={MODULE_COLORS.assessment} />
+      <div style={{ display: "flex", gap: 6, padding: "10px 18px" }}>
+        {AUDIT_TABS.map((t) => (
+          <button key={t.k} onClick={() => setTab(t.k)} style={{
+            flex: 1, padding: "10px 6px", borderRadius: 10, border: `1px solid ${tab === t.k ? T.accent : T.border}`,
+            background: tab === t.k ? T.accent : T.surface, color: tab === t.k ? "#fff" : T.ink2,
+            fontSize: 12.5, fontWeight: 700, cursor: "pointer", fontFamily: "inherit",
+          }}>{t.l}</button>
+        ))}
+      </div>
+      {tab === "checklist" && <AuditChecklistView ctx={ctx} />}
+      {tab === "plan" && <AuditPlanView ctx={ctx} />}
+      {tab === "records" && <AuditRecordsView ctx={ctx} />}
+      {tab === "selfassessment" && <SelfAssessmentView ctx={ctx} />}
+    </div>
+  );
+}
+
+/* --- Audit Checklist: reusable bank of questions auditors check against --- */
+const checklistThStyle = { textAlign: "left", padding: "10px 12px", fontSize: 11.5, fontWeight: 800, color: T.muted, letterSpacing: 0.3, textTransform: "uppercase", whiteSpace: "nowrap" };
+const checklistTdStyle = { textAlign: "left", padding: "10px 12px", verticalAlign: "top", lineHeight: 1.4 };
+
+const AUDIT_CHECKLIST_COLUMNS = [
+  { key: "Question No.", field: "questionNo" },
+  { key: "Category", field: "category" },
+  { key: "Question", field: "question" },
+  { key: "Legal Reference", field: "legalReference" },
+];
+
+function exportAuditChecklist(list) {
+  const rows = list.map((c) => Object.fromEntries(AUDIT_CHECKLIST_COLUMNS.map((col) => [col.key, c[col.field] || ""])));
+  exportExcel(rows, "Audit Checklist", `audit-checklist-${todayISO()}.xlsx`);
+}
+
+async function parseAuditChecklistExcel(file) {
+  const buf = await file.arrayBuffer();
+  const wb = XLSX.read(buf, { type: "array" });
+  const sheet = wb.Sheets[wb.SheetNames[0]];
+  const rows = XLSX.utils.sheet_to_json(sheet, { defval: "" });
+  return rows
+    .map((row) => ({
+      id: uid("aq"),
+      questionNo: String(row["Question No."] ?? row["Question No"] ?? "").trim(),
+      category: CAP_CLUSTERS.includes(row["Category"]) ? row["Category"] : CAP_CLUSTERS[CAP_CLUSTERS.length - 1],
+      question: String(row["Question"] ?? "").trim(),
+      legalReference: String(row["Legal Reference"] ?? "").trim(),
+    }))
+    .filter((r) => r.question);
+}
+
+function AuditChecklistView({ ctx }) {
+  const { data } = ctx;
+  const [q, setQ] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState("");
+  const [form, setForm] = useState(null);
+  const [importMsg, setImportMsg] = useState("");
+  const [importError, setImportError] = useState("");
+  const fileInputRef = useRef(null);
+  const canEdit = hasPerm(ctx, "assessment", "edit");
+
+  const sorted = [...data.auditChecklists].sort((a, b) => (a.questionNo || "").localeCompare(b.questionNo || "", undefined, { numeric: true }) || (a.category || "").localeCompare(b.category || ""));
+  const filtered = sorted
+    .filter((c) => !categoryFilter || c.category === categoryFilter)
+    .filter((c) => `${c.questionNo || ""} ${c.question} ${c.category || ""} ${c.legalReference || ""}`.toLowerCase().includes(q.toLowerCase()));
+
+  const onImportFile = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImportMsg("");
+    setImportError("");
+    try {
+      const imported = await parseAuditChecklistExcel(file);
+      if (imported.length === 0) {
+        setImportError("No valid rows found. Expected columns: Question No., Category, Question, Legal Reference.");
+      } else {
+        ctx.update("auditChecklists", (prev) => [...prev, ...imported]);
+        setImportMsg(`Imported ${imported.length} question${imported.length === 1 ? "" : "s"}.`);
+      }
+    } catch {
+      setImportError("Couldn't read that file — make sure it's a valid .xlsx or .xls file.");
+    } finally {
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
+
+  return (
+    <div>
+      <div style={{ padding: "0 18px 10px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <span style={{ fontSize: 12.5, color: T.muted }}>{filtered.length} of {sorted.length} questions</span>
+        {canEdit && <Btn small onClick={() => setForm({})}><Plus size={15} />New question</Btn>}
+      </div>
+      <div style={{ display: "flex", gap: 8, padding: "0 18px 10px" }}>
+        {canEdit && <Btn variant="ghost" small onClick={() => fileInputRef.current?.click()}><Upload size={13} /> Import Excel</Btn>}
+        <Btn variant="ghost" small onClick={() => exportAuditChecklist(filtered)}><Download size={13} /> Export Excel</Btn>
+        {canEdit && <input ref={fileInputRef} type="file" accept=".xlsx,.xls" onChange={onImportFile} style={{ display: "none" }} />}
+      </div>
+      {importMsg && <div style={{ padding: "0 18px 8px", fontSize: 12, color: T.green, fontWeight: 600 }}>{importMsg}</div>}
+      {importError && <div style={{ padding: "0 18px 8px", fontSize: 12, color: T.red, fontWeight: 600 }}>{importError}</div>}
+      <SearchBar value={q} onChange={setQ} placeholder="Search question no., question, category, legal reference…" />
+      <div style={{ padding: "0 18px 10px" }}>
+        <Select value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}>
+          <option value="">All categories</option>
+          {CAP_CLUSTERS.map((cl) => <option key={cl} value={cl}>{cl}</option>)}
+        </Select>
+      </div>
+      <div style={{ padding: "10px 18px" }}>
+        {filtered.length === 0 && <EmptyState icon={ListChecks} color={MODULE_COLORS.assessment} title="No checklist questions" hint="Add the first question for auditors to check against." />}
+        {filtered.length > 0 && (
+          <div style={{ overflowX: "auto", border: `1px solid ${T.border}`, borderRadius: 12 }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+              <thead>
+                <tr style={{ background: T.bg }}>
+                  <th style={checklistThStyle}>Question No.</th>
+                  <th style={checklistThStyle}>Category</th>
+                  <th style={checklistThStyle}>Question</th>
+                  <th style={checklistThStyle}>Legal Reference</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((c) => (
+                  <tr key={c.id} onClick={canEdit ? () => setForm(c) : undefined} style={{ borderTop: `1px solid ${T.border}`, background: T.surface, cursor: canEdit ? "pointer" : "default" }}>
+                    <td style={{ ...checklistTdStyle, color: T.ink2, fontWeight: 700, whiteSpace: "nowrap" }}>{c.questionNo || "—"}</td>
+                    <td style={{ ...checklistTdStyle, whiteSpace: "nowrap" }}>{c.category ? <Pill tone="cyan">{c.category}</Pill> : <span style={{ color: T.muted }}>—</span>}</td>
+                    <td style={{ ...checklistTdStyle, color: T.ink }}>{c.question}</td>
+                    <td style={{ ...checklistTdStyle, color: c.legalReference ? T.ink2 : T.muted }}>{c.legalReference || "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+      {form && <AuditChecklistForm initial={form} ctx={ctx} onClose={() => setForm(null)} />}
+    </div>
+  );
+}
+
+function AuditChecklistForm({ initial, ctx, onClose }) {
+  const { update } = ctx;
+  const [c, setC] = useState({ questionNo: "", question: "", category: CAP_CLUSTERS[0], legalReference: "", ...initial });
+  const save = () => {
+    if (!c.question.trim()) return;
+    update("auditChecklists", (prev) => c.id && prev.some((x) => x.id === c.id) ? prev.map((x) => (x.id === c.id ? c : x)) : [...prev, { ...c, id: uid("aq") }]);
+    onClose();
+  };
+  const remove = () => { update("auditChecklists", (prev) => prev.filter((x) => x.id !== c.id)); onClose(); };
+  return (
+    <Sheet title={initial.id ? "Edit checklist question" : "New checklist question"} onClose={onClose}>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+        <Field label="Question No."><TextInput value={c.questionNo} onChange={(e) => setC({ ...c, questionNo: e.target.value })} placeholder="e.g. Q-01" /></Field>
+        <Field label="Category">
+          <Select value={c.category} onChange={(e) => setC({ ...c, category: e.target.value })}>
+            {CAP_CLUSTERS.map((cl) => <option key={cl}>{cl}</option>)}
+          </Select>
+        </Field>
+      </div>
+      <Field label="Question"><TextArea rows={3} value={c.question} onChange={(e) => setC({ ...c, question: e.target.value })} placeholder="e.g. Are all emergency exits unobstructed and clearly marked?" /></Field>
+      <Field label="Legal reference"><TextInput value={c.legalReference} onChange={(e) => setC({ ...c, legalReference: e.target.value })} placeholder="e.g. Labor Law Art. 137" /></Field>
+      <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
+        {initial.id && hasPerm(ctx, "assessment", "delete") && <Btn variant="danger" onClick={remove}><Trash2 size={15} /> Delete</Btn>}
+        <div style={{ flex: 1 }} />
+        <Btn variant="ghost" onClick={onClose}>Cancel</Btn>
+        <Btn onClick={save}>Save</Btn>
+      </div>
+    </Sheet>
+  );
+}
+
+/* --- Audit Plan: scheduled audits (Audit No, Audit date, Audit type, Status) --- */
+function AuditPlanView({ ctx }) {
   const { data } = ctx;
   const [form, setForm] = useState(null);
   const plans = data.assessmentPlans.filter((p) => {
@@ -1439,29 +1685,31 @@ function AssessmentView({ ctx }) {
   });
   return (
     <div>
-      <Header title="Assessment/Audit" subtitle={`${plans.length} plans`} icon={FileText} color={MODULE_COLORS.assessment}
-        action={hasPerm(ctx, "assessment", "edit") ? <Btn small onClick={() => setForm({})}><Plus size={15} />New</Btn> : null} />
-      <div style={{ padding: "10px 18px" }}>
-        {plans.length === 0 && <EmptyState icon={FileText} color={MODULE_COLORS.assessment} title="No assessment plans" hint="Plan a new assessment for a cycle." />}
+      <div style={{ padding: "0 18px 10px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <span style={{ fontSize: 12.5, color: T.muted }}>{plans.length} audit plans</span>
+        {hasPerm(ctx, "assessment", "edit") && <Btn small onClick={() => setForm({})}><Plus size={15} />New</Btn>}
+      </div>
+      <div style={{ padding: "0 18px" }}>
+        {plans.length === 0 && <EmptyState icon={ClipboardCheck} color={MODULE_COLORS.assessment} title="No audit plans" hint="Plan a new audit for a cycle." />}
         {plans.map((p) => {
           const adv = data.advisoryInfo.find((a) => a.id === p.advisoryInfoId);
           const co = data.companies.find((c) => c.id === adv?.companyId);
           return (
-            <Row key={p.id} onClick={() => ctx.setDetail({ type: "assessment", id: p.id })} left={<FileText size={16} color={T.blue} />}
-              title={co?.name || "Unassigned"} sub={`Planned ${fmtDate(p.planAssessmentDate)} · ${p.currentNC} open NCs`}
-              right={p.currentNC > 0 ? <Pill tone="amber">{p.currentNC} NC</Pill> : <Pill tone="green">Clear</Pill>} />
+            <Row key={p.id} onClick={() => ctx.setDetail({ type: "assessment", id: p.id })} left={<ClipboardCheck size={16} color={T.blue} />}
+              title={p.auditNo || co?.name || "Unassigned"} sub={`${co?.name || "—"} · ${fmtDate(p.planAssessmentDate)} · ${p.auditType || "—"}`}
+              right={<Pill tone={p.status === "Completed" ? "green" : p.status === "Cancelled" ? "muted" : "blue"}>{p.status || "Planned"}</Pill>} />
           );
         })}
       </div>
-      {form && <AssessmentForm initial={form} ctx={ctx} onClose={() => setForm(null)} />}
+      {form && <AuditPlanForm initial={form} ctx={ctx} onClose={() => setForm(null)} />}
     </div>
   );
 }
 
-function AssessmentForm({ initial, ctx, onClose }) {
+function AuditPlanForm({ initial, ctx, onClose }) {
   const { data, update } = ctx;
   const scopedAdvisory = data.advisoryInfo.filter((a) => inScope(ctx, a.companyId));
-  const [p, setP] = useState({ advisoryInfoId: scopedAdvisory[0]?.id || "", previousAssessmentDate: "", planAssessmentDate: "", reportReleasedDate: "", currentNC: 0, ...initial });
+  const [p, setP] = useState({ advisoryInfoId: scopedAdvisory[0]?.id || "", auditNo: "", planAssessmentDate: "", auditType: AUDIT_TYPES[0], status: AUDIT_PLAN_STATUSES[0], ...initial });
   const save = () => {
     if (!p.advisoryInfoId) return;
     update("assessmentPlans", (prev) => p.id && prev.some((x) => x.id === p.id) ? prev.map((x) => (x.id === p.id ? p : x)) : [...prev, { ...p, id: uid("ap") }]);
@@ -1473,7 +1721,7 @@ function AssessmentForm({ initial, ctx, onClose }) {
     onClose();
   };
   return (
-    <Sheet title={initial.id ? "Edit assessment plan" : "New assessment plan"} onClose={onClose}>
+    <Sheet title={initial.id ? "Edit audit plan" : "New audit plan"} onClose={onClose}>
       <Field label="Advisory cycle">
         <Select value={p.advisoryInfoId} onChange={(e) => setP({ ...p, advisoryInfoId: e.target.value })}>
           {data.advisoryInfo.filter((a) => inScope(ctx, a.companyId)).map((a) => {
@@ -1483,13 +1731,21 @@ function AssessmentForm({ initial, ctx, onClose }) {
         </Select>
       </Field>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-        <Field label="Previous assessment"><TextInput type="date" value={p.previousAssessmentDate} onChange={(e) => setP({ ...p, previousAssessmentDate: e.target.value })} /></Field>
-        <Field label="Planned assessment"><TextInput type="date" value={p.planAssessmentDate} onChange={(e) => setP({ ...p, planAssessmentDate: e.target.value })} /></Field>
+        <Field label="Audit No."><TextInput value={p.auditNo} onChange={(e) => setP({ ...p, auditNo: e.target.value })} placeholder="e.g. AUD-2026-01" /></Field>
+        <Field label="Audit date"><TextInput type="date" value={p.planAssessmentDate} onChange={(e) => setP({ ...p, planAssessmentDate: e.target.value })} /></Field>
       </div>
-      <Field label="Report released date"><TextInput type="date" value={p.reportReleasedDate} onChange={(e) => setP({ ...p, reportReleasedDate: e.target.value })} /></Field>
-      <Field label="Current non-compliance count">
-        <TextInput type="number" min="0" value={p.currentNC} onChange={(e) => setP({ ...p, currentNC: Number(e.target.value) })} />
-      </Field>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+        <Field label="Audit type">
+          <Select value={p.auditType} onChange={(e) => setP({ ...p, auditType: e.target.value })}>
+            {AUDIT_TYPES.map((t) => <option key={t}>{t}</option>)}
+          </Select>
+        </Field>
+        <Field label="Status">
+          <Select value={p.status} onChange={(e) => setP({ ...p, status: e.target.value })}>
+            {AUDIT_PLAN_STATUSES.map((s) => <option key={s}>{s}</option>)}
+          </Select>
+        </Field>
+      </div>
       <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
         {initial.id && hasPerm(ctx, "assessment", "delete") && <Btn variant="danger" onClick={remove}><Trash2 size={15} /> Delete</Btn>}
         <div style={{ flex: 1 }} />
@@ -1500,7 +1756,7 @@ function AssessmentForm({ initial, ctx, onClose }) {
   );
 }
 
-function AssessmentDetail({ id, ctx, onBack }) {
+function AuditPlanDetail({ id, ctx, onBack }) {
   const { data } = ctx;
   const p = data.assessmentPlans.find((x) => x.id === id);
   const [form, setForm] = useState(null);
@@ -1510,14 +1766,14 @@ function AssessmentDetail({ id, ctx, onBack }) {
   const caps = data.caps.filter((c) => c.assessmentPlanId === id);
   return (
     <div>
-      <div style={{ padding: "14px 18px 0" }}><Btn variant="ghost" small onClick={onBack}><ArrowLeft size={14} />All plans</Btn></div>
-      <Header title={co?.name || "Assessment"} subtitle={adv?.cycleNumber} icon={FileText} color={MODULE_COLORS.assessment} action={hasPerm(ctx, "assessment", "edit") ? <Btn small onClick={() => setForm(p)}><Pencil size={13} />Edit</Btn> : null} />
+      <div style={{ padding: "14px 18px 0" }}><Btn variant="ghost" small onClick={onBack}><ArrowLeft size={14} />All audit plans</Btn></div>
+      <Header title={p.auditNo || co?.name || "Audit plan"} subtitle={co?.name} icon={ClipboardCheck} color={MODULE_COLORS.assessment} action={hasPerm(ctx, "assessment", "edit") ? <Btn small onClick={() => setForm(p)}><Pencil size={13} />Edit</Btn> : null} />
       <div style={{ padding: "0 18px" }}>
         <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 14, padding: 14, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, fontSize: 13 }}>
-          <div><div style={{ color: T.muted, fontSize: 11.5, fontWeight: 700 }}>PREVIOUS</div>{fmtDate(p.previousAssessmentDate)}</div>
-          <div><div style={{ color: T.muted, fontSize: 11.5, fontWeight: 700 }}>PLANNED</div>{fmtDate(p.planAssessmentDate)}</div>
-          <div><div style={{ color: T.muted, fontSize: 11.5, fontWeight: 700 }}>REPORT RELEASED</div>{fmtDate(p.reportReleasedDate)}</div>
-          <div><div style={{ color: T.muted, fontSize: 11.5, fontWeight: 700 }}>OPEN NCs</div>{p.currentNC}</div>
+          <div><div style={{ color: T.muted, fontSize: 11.5, fontWeight: 700 }}>AUDIT NO.</div>{p.auditNo || "—"}</div>
+          <div><div style={{ color: T.muted, fontSize: 11.5, fontWeight: 700 }}>AUDIT DATE</div>{fmtDate(p.planAssessmentDate)}</div>
+          <div><div style={{ color: T.muted, fontSize: 11.5, fontWeight: 700 }}>AUDIT TYPE</div>{p.auditType || "—"}</div>
+          <div><div style={{ color: T.muted, fontSize: 11.5, fontWeight: 700 }}>STATUS</div>{p.status || "Planned"}</div>
         </div>
       </div>
       <SectionLabel>Corrective action plans</SectionLabel>
@@ -1528,8 +1784,536 @@ function AssessmentDetail({ id, ctx, onBack }) {
           return <Row key={c.id} left={<ShieldAlert size={16} color={T.amber} />} title={`${c.ncNumber} · ${c.area}`} sub={`Target ${fmtDate(c.targetDate)}`} right={<Pill tone={capTone(st)}>{st}</Pill>} />;
         })}
       </div>
-      {form && <AssessmentForm initial={form} ctx={ctx} onClose={() => setForm(null)} />}
+      {form && <AuditPlanForm initial={form} ctx={ctx} onClose={() => setForm(null)} />}
     </div>
+  );
+}
+
+/* --- Audit Management (recording): actual audits per factory, with NC detail --- */
+function AuditRecordsView({ ctx }) {
+  const { data } = ctx;
+  const [companyFilter, setCompanyFilter] = useState("");
+  const [form, setForm] = useState(null);
+  const canEdit = hasPerm(ctx, "assessment", "edit");
+
+  const sorted = [...data.auditRecords].filter((r) => inScope(ctx, r.companyId)).sort((a, b) => (b.auditDate || "").localeCompare(a.auditDate || ""));
+  const filtered = sorted.filter((r) => !companyFilter || r.companyId === companyFilter);
+
+  return (
+    <div>
+      <div style={{ padding: "0 18px 10px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <span style={{ fontSize: 12.5, color: T.muted }}>{sorted.length} audits recorded</span>
+        {canEdit && <Btn small onClick={() => setForm({})}><Plus size={15} />Record audit</Btn>}
+      </div>
+      <div style={{ padding: "0 18px 10px" }}>
+        <Select value={companyFilter} onChange={(e) => setCompanyFilter(e.target.value)}>
+          <option value="">All factories</option>
+          {ctx.visibleCompanies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+        </Select>
+      </div>
+      <div style={{ padding: "0 18px" }}>
+        {filtered.length === 0 && <EmptyState icon={ShieldCheck} color={MODULE_COLORS.assessment} title="No audits recorded" hint="Record the result of a completed audit." />}
+        {filtered.map((r) => {
+          const co = data.companies.find((c) => c.id === r.companyId);
+          const ncCount = (r.ncs || []).length;
+          return (
+            <Row key={r.id} onClick={() => ctx.setDetail({ type: "auditRecord", id: r.id })} left={<ShieldCheck size={16} color={T.amber} />}
+              title={co?.name || "Unassigned"} sub={`${fmtDate(r.auditDate)} · ${r.auditType || "—"}`}
+              right={ncCount > 0 ? <Pill tone="amber">{ncCount} NC{ncCount === 1 ? "" : "s"}</Pill> : <Pill tone="green">Clear</Pill>} />
+          );
+        })}
+      </div>
+      {form && <AuditRecordForm initial={form} ctx={ctx} onClose={() => setForm(null)} />}
+    </div>
+  );
+}
+
+function AuditRecordForm({ initial, ctx, onClose }) {
+  const { update } = ctx;
+  const [r, setR] = useState({
+    companyId: ctx.scopeCompanyId && ctx.scopeCompanyId !== "__unassigned__" ? ctx.scopeCompanyId : (ctx.visibleCompanies[0]?.id || ""),
+    auditDate: todayISO(), auditType: AUDIT_TYPES[0], ncs: [],
+    ...initial,
+  });
+  const save = () => {
+    if (!r.companyId || !r.auditDate) return;
+    update("auditRecords", (prev) => r.id && prev.some((x) => x.id === r.id) ? prev.map((x) => (x.id === r.id ? r : x)) : [...prev, { ...r, id: uid("ar"), ncs: r.ncs || [] }]);
+    onClose();
+  };
+  const remove = () => { update("auditRecords", (prev) => prev.filter((x) => x.id !== r.id)); onClose(); };
+  return (
+    <Sheet title={initial.id ? "Edit audit record" : "Record audit"} onClose={onClose}>
+      <Field label="Factory / Company">
+        <Select value={r.companyId} onChange={(e) => setR({ ...r, companyId: e.target.value })}>
+          {ctx.visibleCompanies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+        </Select>
+      </Field>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+        <Field label="Audit date"><TextInput type="date" value={r.auditDate} onChange={(e) => setR({ ...r, auditDate: e.target.value })} /></Field>
+        <Field label="Audit type">
+          <Select value={r.auditType} onChange={(e) => setR({ ...r, auditType: e.target.value })}>
+            {AUDIT_TYPES.map((t) => <option key={t}>{t}</option>)}
+          </Select>
+        </Field>
+      </div>
+      <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
+        {initial.id && hasPerm(ctx, "assessment", "delete") && <Btn variant="danger" onClick={remove}><Trash2 size={15} /> Delete</Btn>}
+        <div style={{ flex: 1 }} />
+        <Btn variant="ghost" onClick={onClose}>Cancel</Btn>
+        <Btn onClick={save}>Save</Btn>
+      </div>
+    </Sheet>
+  );
+}
+
+function AuditRecordDetail({ id, ctx, onBack }) {
+  const { data } = ctx;
+  const r = data.auditRecords.find((x) => x.id === id);
+  const [form, setForm] = useState(null);
+  const [ncForm, setNcForm] = useState(null);
+  if (!r) return null;
+  const co = data.companies.find((c) => c.id === r.companyId);
+  const canEdit = hasPerm(ctx, "assessment", "edit");
+  const ncs = r.ncs || [];
+  return (
+    <div>
+      <div style={{ padding: "14px 18px 0" }}><Btn variant="ghost" small onClick={onBack}><ArrowLeft size={14} />All audits</Btn></div>
+      <Header title={co?.name || "Audit record"} subtitle={`${fmtDate(r.auditDate)} · ${r.auditType || "—"}`} icon={ShieldCheck} color={MODULE_COLORS.assessment} action={canEdit ? <Btn small onClick={() => setForm(r)}><Pencil size={13} />Edit</Btn> : null} />
+      <div style={{ padding: "0 18px" }}>
+        <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 14, padding: 14, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, fontSize: 13 }}>
+          <div><div style={{ color: T.muted, fontSize: 11.5, fontWeight: 700 }}>AUDIT DATE</div>{fmtDate(r.auditDate)}</div>
+          <div><div style={{ color: T.muted, fontSize: 11.5, fontWeight: 700 }}>AUDIT TYPE</div>{r.auditType || "—"}</div>
+          <div><div style={{ color: T.muted, fontSize: 11.5, fontWeight: 700 }}>NUMBER OF NCs</div>{ncs.length}</div>
+        </div>
+      </div>
+      <div style={{ padding: "6px 18px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <SectionLabel>Non-compliances (NCs)</SectionLabel>
+        {canEdit && <Btn small variant="ghost" onClick={() => setNcForm({})}><Plus size={13} />Add NC</Btn>}
+      </div>
+      <div style={{ padding: "0 18px" }}>
+        {ncs.length === 0 && <EmptyRow text="No non-compliances recorded for this audit." />}
+        {ncs.map((nc) => (
+          <Row key={nc.id} onClick={canEdit ? () => setNcForm(nc) : undefined} left={<AlertTriangle size={16} color={T.amber} />}
+            title={nc.description} sub={nc.status || "Open"}
+            right={<Pill tone={nc.severity === "Critical" ? "red" : nc.severity === "Major" ? "amber" : "muted"}>{nc.severity || "Minor"}</Pill>} />
+        ))}
+      </div>
+      {form && <AuditRecordForm initial={form} ctx={ctx} onClose={() => setForm(null)} />}
+      {ncForm && <AuditNcForm record={r} initial={ncForm} ctx={ctx} onClose={() => setNcForm(null)} />}
+    </div>
+  );
+}
+
+function AuditNcForm({ record, initial, ctx, onClose }) {
+  const { update } = ctx;
+  const [nc, setNc] = useState({ description: "", severity: AUDIT_NC_SEVERITIES[0], status: AUDIT_NC_STATUSES[0], ...initial });
+  const save = () => {
+    if (!nc.description.trim()) return;
+    update("auditRecords", (prev) => prev.map((r) => {
+      if (r.id !== record.id) return r;
+      const existing = r.ncs || [];
+      const next = nc.id && existing.some((x) => x.id === nc.id)
+        ? existing.map((x) => (x.id === nc.id ? nc : x))
+        : [...existing, { ...nc, id: uid("nc") }];
+      return { ...r, ncs: next };
+    }));
+    onClose();
+  };
+  const remove = () => {
+    update("auditRecords", (prev) => prev.map((r) => r.id === record.id ? { ...r, ncs: (r.ncs || []).filter((x) => x.id !== nc.id) } : r));
+    onClose();
+  };
+  return (
+    <Sheet title={initial.id ? "Edit non-compliance" : "Add non-compliance"} onClose={onClose}>
+      <Field label="Description"><TextArea rows={3} value={nc.description} onChange={(e) => setNc({ ...nc, description: e.target.value })} placeholder="Describe the non-compliance found…" /></Field>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+        <Field label="Severity">
+          <Select value={nc.severity} onChange={(e) => setNc({ ...nc, severity: e.target.value })}>
+            {AUDIT_NC_SEVERITIES.map((s) => <option key={s}>{s}</option>)}
+          </Select>
+        </Field>
+        <Field label="Status">
+          <Select value={nc.status} onChange={(e) => setNc({ ...nc, status: e.target.value })}>
+            {AUDIT_NC_STATUSES.map((s) => <option key={s}>{s}</option>)}
+          </Select>
+        </Field>
+      </div>
+      <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
+        {initial.id && hasPerm(ctx, "assessment", "delete") && <Btn variant="danger" onClick={remove}><Trash2 size={15} /> Delete</Btn>}
+        <div style={{ flex: 1 }} />
+        <Btn variant="ghost" onClick={onClose}>Cancel</Btn>
+        <Btn onClick={save}>Save</Btn>
+      </div>
+    </Sheet>
+  );
+}
+
+/* --- Self-Assessment: factory conducts self-assessment against assigned checklist questions --- */
+function selfAssessmentAnswerTone(answer) {
+  return answer === "Compliant" ? "green" : answer === "Non-Compliant" ? "red" : answer === "N/A" ? "muted" : "amber";
+}
+
+function SelfAssessmentView({ ctx }) {
+  const { data } = ctx;
+  const [form, setForm] = useState(null);
+  const canAssign = hasPerm(ctx, "assessment", "edit");
+  const isCompanyUser = ctx.role.role === "user";
+
+  const list = [...data.selfAssessments].filter((s) => inScope(ctx, s.companyId)).sort((a, b) => (b.assignedDate || "").localeCompare(a.assignedDate || ""));
+
+  return (
+    <div>
+      <div style={{ padding: "0 18px 10px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <span style={{ fontSize: 12.5, color: T.muted }}>{list.length} self-assessments</span>
+        {canAssign && <Btn small onClick={() => setForm({})}><Plus size={15} />Assign</Btn>}
+      </div>
+      <div style={{ padding: "0 18px" }}>
+        {list.length === 0 && (
+          <EmptyState icon={ListChecks} color={MODULE_COLORS.assessment} title="No self-assessments"
+            hint={isCompanyUser ? "No self-assessment has been assigned to you yet." : "Assign checklist questions to a factory for self-assessment."} />
+        )}
+        {list.map((s) => {
+          const co = data.companies.find((c) => c.id === s.companyId);
+          const rows = s.questions || [];
+          const answered = rows.filter((q) => q.answer).length;
+          return (
+            <Row key={s.id} onClick={() => ctx.setDetail({ type: "selfAssessment", id: s.id })} left={<ListChecks size={16} color={T.cyan} />}
+              title={co?.name || "Unassigned"} sub={`${fmtDate(s.assignedDate)} → ${fmtDate(s.dueDate)} · ${answered}/${rows.length} answered`}
+              right={<Pill tone={s.status === "Reviewed" ? "green" : s.status === "Submitted" ? "blue" : "amber"}>{s.status}</Pill>} />
+          );
+        })}
+      </div>
+      {form && <SelfAssessmentForm initial={form} ctx={ctx} onClose={() => setForm(null)} />}
+    </div>
+  );
+}
+
+function SelfAssessmentForm({ ctx, onClose }) {
+  const { data, update } = ctx;
+  const [companyId, setCompanyId] = useState(ctx.visibleCompanies[0]?.id || "");
+  const [assignedDate, setAssignedDate] = useState(todayISO());
+  const [dueDate, setDueDate] = useState("");
+  const [selectedIds, setSelectedIds] = useState(() => new Set(data.auditChecklists.map((q) => q.id)));
+
+  const toggle = (id) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const save = () => {
+    if (!companyId || selectedIds.size === 0) return;
+    const questions = data.auditChecklists.filter((q) => selectedIds.has(q.id))
+      .map((q) => ({ questionId: q.id, questionNo: q.questionNo, question: q.question, category: q.category, answer: "", remark: "" }));
+    const record = { id: uid("sa"), companyId, assignedDate, dueDate, status: "Draft", questions };
+    update("selfAssessments", (prev) => [...prev, record]);
+    onClose();
+  };
+
+  return (
+    <Sheet title="Assign self-assessment" onClose={onClose}>
+      <Field label="Factory / Company">
+        <Select value={companyId} onChange={(e) => setCompanyId(e.target.value)}>
+          {ctx.visibleCompanies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+        </Select>
+      </Field>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+        <Field label="Assigned date"><TextInput type="date" value={assignedDate} onChange={(e) => setAssignedDate(e.target.value)} /></Field>
+        <Field label="Due date"><TextInput type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} /></Field>
+      </div>
+      <Field label={`Assigned questions (${selectedIds.size}/${data.auditChecklists.length})`}>
+        <div style={{ border: `1px solid ${T.border}`, borderRadius: 10, maxHeight: 260, overflowY: "auto" }}>
+          {data.auditChecklists.length === 0 && <div style={{ padding: 12, fontSize: 12.5, color: T.muted }}>No checklist questions exist yet — add some in Audit Checklist first.</div>}
+          {data.auditChecklists.map((qz) => (
+            <label key={qz.id} style={{ display: "flex", gap: 8, alignItems: "flex-start", padding: "9px 10px", borderTop: `1px solid ${T.border}`, cursor: "pointer" }}>
+              <input type="checkbox" checked={selectedIds.has(qz.id)} onChange={() => toggle(qz.id)} style={{ marginTop: 3 }} />
+              <span style={{ fontSize: 12.5, color: T.ink2 }}>
+                {qz.questionNo && <b style={{ color: T.ink }}>{qz.questionNo} · </b>}{qz.question}
+              </span>
+            </label>
+          ))}
+        </div>
+      </Field>
+      <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
+        <div style={{ flex: 1 }} />
+        <Btn variant="ghost" onClick={onClose}>Cancel</Btn>
+        <Btn onClick={save} disabled={!companyId || selectedIds.size === 0}>Assign</Btn>
+      </div>
+    </Sheet>
+  );
+}
+
+function SelfAssessmentDetail({ id, ctx, onBack }) {
+  const { data, update } = ctx;
+  const sa = data.selfAssessments.find((x) => x.id === id);
+  const [rows, setRows] = useState(() => (sa?.questions || []).map((q) => ({ ...q })));
+  if (!sa) return null;
+  const co = data.companies.find((c) => c.id === sa.companyId);
+  const canManage = hasPerm(ctx, "assessment", "edit");
+  const canFill = sa.status === "Draft" && inScope(ctx, sa.companyId) && (ctx.role.role === "user" || canManage);
+
+  const setRow = (qId, patch) => setRows((prev) => prev.map((r) => (r.questionId === qId ? { ...r, ...patch } : r)));
+  const saveResponses = () => update("selfAssessments", (prev) => prev.map((s) => (s.id === sa.id ? { ...s, questions: rows } : s)));
+  const submit = () => update("selfAssessments", (prev) => prev.map((s) => (s.id === sa.id ? { ...s, questions: rows, status: "Submitted" } : s)));
+  const markReviewed = () => update("selfAssessments", (prev) => prev.map((s) => (s.id === sa.id ? { ...s, status: "Reviewed" } : s)));
+  const reopen = () => update("selfAssessments", (prev) => prev.map((s) => (s.id === sa.id ? { ...s, status: "Draft" } : s)));
+  const remove = () => { update("selfAssessments", (prev) => prev.filter((s) => s.id !== sa.id)); onBack(); };
+
+  const answeredCount = rows.filter((r) => r.answer).length;
+  const ncCount = rows.filter((r) => r.answer === "Non-Compliant").length;
+
+  return (
+    <div>
+      <div style={{ padding: "14px 18px 0", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <Btn variant="ghost" small onClick={onBack}><ArrowLeft size={14} />All self-assessments</Btn>
+        {hasPerm(ctx, "assessment", "delete") && <Btn variant="danger" small onClick={remove}><Trash2 size={13} />Delete</Btn>}
+      </div>
+      <Header title={co?.name || "Self-assessment"} subtitle={`${fmtDate(sa.assignedDate)} → ${fmtDate(sa.dueDate)}`} icon={ListChecks} color={MODULE_COLORS.assessment}
+        action={<Pill tone={sa.status === "Reviewed" ? "green" : sa.status === "Submitted" ? "blue" : "amber"}>{sa.status}</Pill>} />
+      <div style={{ padding: "0 18px" }}>
+        <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 14, padding: 14, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, fontSize: 13, marginBottom: 4 }}>
+          <div><div style={{ color: T.muted, fontSize: 11.5, fontWeight: 700 }}>ANSWERED</div>{answeredCount} / {rows.length}</div>
+          <div><div style={{ color: T.muted, fontSize: 11.5, fontWeight: 700 }}>NON-COMPLIANT</div>{ncCount}</div>
+        </div>
+      </div>
+      <SectionLabel>Assigned questions</SectionLabel>
+      <div style={{ padding: "0 18px" }}>
+        {rows.length === 0 && <EmptyRow text="No questions were assigned." />}
+        {rows.map((r) => (
+          <div key={r.questionId} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: 14, marginBottom: 8 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+              <span style={{ fontSize: 14, color: T.ink }}>{r.questionNo && <b>{r.questionNo} · </b>}{r.question}</span>
+              {r.category && <Pill tone="cyan">{r.category}</Pill>}
+            </div>
+            {canFill ? (
+              <div style={{ marginTop: 10 }}>
+                <div style={{ display: "flex", gap: 6, marginBottom: 8, flexWrap: "wrap" }}>
+                  {SELF_ASSESSMENT_ANSWERS.map((a) => (
+                    <button key={a} onClick={() => setRow(r.questionId, { answer: a })} style={{
+                      padding: "7px 12px", borderRadius: 999, border: `1px solid ${r.answer === a ? T.accent : T.border}`,
+                      background: r.answer === a ? T.accent : T.surface, color: r.answer === a ? "#fff" : T.ink2,
+                      fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit",
+                    }}>{a}</button>
+                  ))}
+                </div>
+                <TextArea rows={2} value={r.remark} onChange={(e) => setRow(r.questionId, { remark: e.target.value })} placeholder="Remark / evidence (optional)" />
+              </div>
+            ) : (
+              <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                <Pill tone={selfAssessmentAnswerTone(r.answer)}>{r.answer || "Not answered"}</Pill>
+                {r.remark && <span style={{ fontSize: 12.5, color: T.ink2 }}>{r.remark}</span>}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+      {canFill && (
+        <div style={{ display: "flex", gap: 10, padding: "10px 18px 4px" }}>
+          <Btn variant="ghost" onClick={saveResponses}>Save progress</Btn>
+          <div style={{ flex: 1 }} />
+          <Btn onClick={submit}>Submit self-assessment</Btn>
+        </div>
+      )}
+      {canManage && sa.status === "Submitted" && (
+        <div style={{ display: "flex", gap: 10, padding: "10px 18px 4px" }}>
+          <Btn variant="ghost" onClick={reopen}>Return to factory</Btn>
+          <div style={{ flex: 1 }} />
+          <Btn onClick={markReviewed}>Mark reviewed</Btn>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------
+   RISK ASSESSMENT
+----------------------------------------------------------------*/
+const RISK_LEVEL_FILTERS = ["All", "Low", "Medium", "High", "Very High"];
+
+function RiskAssessmentView({ ctx }) {
+  const { data } = ctx;
+  const [q, setQ] = useState("");
+  const [levelFilter, setLevelFilter] = useState("All");
+  const [companyFilter, setCompanyFilter] = useState("");
+  const [form, setForm] = useState(null);
+  const canEdit = hasPerm(ctx, "risk", "edit");
+
+  const enriched = data.riskAssessments
+    .filter((r) => inScope(ctx, r.companyId))
+    .map((r) => {
+      const score = (r.likelihood || 0) * (r.severity || 0);
+      return { ...r, score, level: riskLevelOf(score) };
+    })
+    .sort((a, b) => b.score - a.score || (b.date || "").localeCompare(a.date || ""));
+
+  const filtered = enriched.filter((r) => {
+    if (levelFilter !== "All" && r.level !== levelFilter) return false;
+    if (companyFilter && r.companyId !== companyFilter) return false;
+    const co = data.companies.find((c) => c.id === r.companyId);
+    const hay = `${r.description} ${r.area || ""} ${r.category || ""} ${co?.name || ""}`.toLowerCase();
+    return hay.includes(q.toLowerCase());
+  });
+
+  return (
+    <div>
+      <Header title="Risk Assessment" subtitle={`${enriched.length} identified risks`} icon={AlertTriangle} color={MODULE_COLORS.risk}
+        action={canEdit ? <Btn small onClick={() => setForm({})}><Plus size={15} />New</Btn> : null} />
+      <SearchBar value={q} onChange={setQ} placeholder="Search hazard, area, category…" />
+      <div style={{ display: "flex", gap: 6, padding: "10px 18px", overflowX: "auto" }}>
+        {RISK_LEVEL_FILTERS.map((f) => (
+          <button key={f} onClick={() => setLevelFilter(f)} style={{
+            padding: "7px 12px", borderRadius: 999, border: `1px solid ${levelFilter === f ? T.accent : T.border}`,
+            background: levelFilter === f ? T.accent : T.surface, color: levelFilter === f ? "#fff" : T.ink2,
+            fontSize: 12.5, fontWeight: 700, whiteSpace: "nowrap", cursor: "pointer", fontFamily: "inherit",
+          }}>{f}</button>
+        ))}
+      </div>
+      <div style={{ padding: "0 18px 10px" }}>
+        <Select value={companyFilter} onChange={(e) => setCompanyFilter(e.target.value)}>
+          <option value="">All factories</option>
+          {ctx.visibleCompanies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+        </Select>
+      </div>
+      <div style={{ padding: "0 18px" }}>
+        {filtered.length === 0 && <EmptyState icon={AlertTriangle} color={MODULE_COLORS.risk} title="No risks found" hint="Identify a hazard or non-compliance issue and rate its risk." />}
+        {filtered.map((r) => {
+          const co = data.companies.find((c) => c.id === r.companyId);
+          return (
+            <div key={r.id} onClick={canEdit ? () => setForm(r) : undefined} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: 14, marginBottom: 8, cursor: canEdit ? "pointer" : "default" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+                <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: 14.5, color: T.ink }}>{r.riskNo ? `${r.riskNo} · ` : ""}{co?.name || "Unassigned"}</span>
+                <Pill tone={riskLevelTone(r.level)}>{r.level} · {r.score}</Pill>
+              </div>
+              {(r.hazard || r.area) && <div style={{ fontSize: 12.5, color: T.ink2, marginTop: 4 }}>{r.hazard}{r.hazard && r.area ? " · " : ""}{r.area}</div>}
+              <div style={{ fontSize: 13, color: T.ink2, marginTop: 8 }}>{r.description}</div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
+                {r.category && <Pill tone="cyan">{r.category}</Pill>}
+                <span style={{ fontSize: 11.5, color: T.muted }}>Likelihood {r.likelihood} × Severity {r.severity}</span>
+                <Pill tone={r.status === "Closed" ? "green" : r.status === "In Progress" ? "blue" : "amber"}>{r.status}</Pill>
+                {r.actualCompletionDate && <span style={{ fontSize: 11.5, color: T.muted }}>Completed {fmtDate(r.actualCompletionDate)}</span>}
+              </div>
+              {r.recommendedActions && (
+                <div style={{ fontSize: 12.5, color: T.ink2, marginTop: 8, background: T.bg, padding: 8, borderRadius: 8 }}>
+                  <span style={{ fontWeight: 700, color: T.muted }}>Recommended action: </span>{r.recommendedActions}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      {form && <RiskAssessmentForm initial={form} ctx={ctx} onClose={() => setForm(null)} />}
+    </div>
+  );
+}
+
+// Caps aren't directly companyId-scoped (they hang off an audit plan, which
+// hangs off an advisory cycle) — this walks that chain so a risk can only
+// link to a CAP belonging to the same factory it was raised against.
+function capsForCompany(data, companyId) {
+  return data.caps.filter((c) => {
+    const ap = data.assessmentPlans.find((a) => a.id === c.assessmentPlanId);
+    const adv = data.advisoryInfo.find((a) => a.id === ap?.advisoryInfoId);
+    return adv?.companyId === companyId;
+  });
+}
+
+function RiskAssessmentForm({ initial, ctx, onClose }) {
+  const { data, update } = ctx;
+  const [r, setR] = useState({
+    companyId: ctx.scopeCompanyId && ctx.scopeCompanyId !== "__unassigned__" ? ctx.scopeCompanyId : (ctx.visibleCompanies[0]?.id || ""),
+    riskNo: "", date: todayISO(), area: "", category: CAP_CLUSTERS[0], hazard: "", description: "",
+    likelihood: 3, severity: 3, existingControls: "", recommendedActions: "",
+    assignedTo: "", targetDate: "", actualCompletionDate: "", status: RISK_STATUSES[0], linkedCapId: "",
+    ...initial,
+  });
+  const score = (r.likelihood || 0) * (r.severity || 0);
+  const level = riskLevelOf(score);
+  const companyCaps = capsForCompany(data, r.companyId);
+
+  // Entering an actual completion date means the risk is done — status can
+  // only be "Closed" while a date is set, so the two fields can never say
+  // different things (e.g. a completion date on a still-"Open" risk).
+  const setActualCompletionDate = (val) => {
+    setR((prev) => ({ ...prev, actualCompletionDate: val, status: val ? "Closed" : prev.status }));
+  };
+
+  const save = () => {
+    if (!r.companyId || !r.description.trim()) return;
+    const record = { ...r, status: r.actualCompletionDate ? "Closed" : r.status };
+    update("riskAssessments", (prev) => record.id && prev.some((x) => x.id === record.id) ? prev.map((x) => (x.id === record.id ? record : x)) : [...prev, { ...record, id: uid("ra") }]);
+    onClose();
+  };
+  const remove = () => { update("riskAssessments", (prev) => prev.filter((x) => x.id !== r.id)); onClose(); };
+
+  return (
+    <Sheet title={initial.id ? "Edit risk assessment" : "New risk assessment"} onClose={onClose}>
+      <Field label="Factory / Company">
+        <Select value={r.companyId} onChange={(e) => setR({ ...r, companyId: e.target.value })}>
+          {ctx.visibleCompanies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+        </Select>
+      </Field>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+        <Field label="Risk No."><TextInput value={r.riskNo} onChange={(e) => setR({ ...r, riskNo: e.target.value })} placeholder="e.g. RA-01" /></Field>
+        <Field label="Identified date"><TextInput type="date" value={r.date} onChange={(e) => setR({ ...r, date: e.target.value })} /></Field>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+        <Field label="Area / Location"><TextInput value={r.area} onChange={(e) => setR({ ...r, area: e.target.value })} placeholder="e.g. Sewing Line 2" /></Field>
+        <Field label="Category">
+          <Select value={r.category} onChange={(e) => setR({ ...r, category: e.target.value })}>
+            {CAP_CLUSTERS.map((cl) => <option key={cl}>{cl}</option>)}
+          </Select>
+        </Field>
+      </div>
+      <Field label="Hazard"><TextInput value={r.hazard} onChange={(e) => setR({ ...r, hazard: e.target.value })} placeholder="e.g. Blocked emergency exit" /></Field>
+      <Field label="Risk description">
+        <TextArea rows={3} value={r.description} onChange={(e) => setR({ ...r, description: e.target.value })} placeholder="Describe the risk scenario and its potential consequence…" />
+      </Field>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+        <Field label="Likelihood (1-5)">
+          <Select value={r.likelihood} onChange={(e) => setR({ ...r, likelihood: Number(e.target.value) })}>
+            {[1, 2, 3, 4, 5].map((n) => <option key={n} value={n}>{n} — {RISK_LIKELIHOOD_LABELS[n - 1]}</option>)}
+          </Select>
+        </Field>
+        <Field label="Severity (1-5)">
+          <Select value={r.severity} onChange={(e) => setR({ ...r, severity: Number(e.target.value) })}>
+            {[1, 2, 3, 4, 5].map((n) => <option key={n} value={n}>{n} — {RISK_SEVERITY_LABELS[n - 1]}</option>)}
+          </Select>
+        </Field>
+      </div>
+      <div style={{ background: T.bg, borderRadius: 10, padding: 12, display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+        <span style={{ fontSize: 12.5, color: T.ink2, fontWeight: 700 }}>Risk score {r.likelihood} × {r.severity} = {score}</span>
+        <Pill tone={riskLevelTone(level)}>{level}</Pill>
+      </div>
+      <Field label="Existing controls"><TextArea value={r.existingControls} onChange={(e) => setR({ ...r, existingControls: e.target.value })} placeholder="Controls already in place…" /></Field>
+      <Field label="Recommended actions"><TextArea value={r.recommendedActions} onChange={(e) => setR({ ...r, recommendedActions: e.target.value })} placeholder="Actions to reduce likelihood/severity…" /></Field>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+        <Field label="Assigned to"><TextInput value={r.assignedTo} onChange={(e) => setR({ ...r, assignedTo: e.target.value })} /></Field>
+        <Field label="Target date"><TextInput type="date" value={r.targetDate} onChange={(e) => setR({ ...r, targetDate: e.target.value })} /></Field>
+      </div>
+      <Field label="Actual completion date">
+        <TextInput type="date" value={r.actualCompletionDate} onChange={(e) => setActualCompletionDate(e.target.value)} />
+      </Field>
+      <Field label="Status">
+        <Select value={r.status} disabled={!!r.actualCompletionDate} onChange={(e) => setR({ ...r, status: e.target.value })}>
+          {RISK_STATUSES.map((s) => <option key={s}>{s}</option>)}
+        </Select>
+        {r.actualCompletionDate && <div style={{ fontSize: 11.5, color: T.muted, marginTop: 6 }}>Locked to Closed while an actual completion date is set — clear the date to change status.</div>}
+      </Field>
+      <Field label="Linked CAP (optional)">
+        <Select value={r.linkedCapId} onChange={(e) => setR({ ...r, linkedCapId: e.target.value })}>
+          <option value="">— None —</option>
+          {companyCaps.map((c) => <option key={c.id} value={c.id}>{c.ncNumber} · {c.area}</option>)}
+        </Select>
+      </Field>
+      <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
+        {initial.id && hasPerm(ctx, "risk", "delete") && <Btn variant="danger" onClick={remove}><Trash2 size={15} /> Delete</Btn>}
+        <div style={{ flex: 1 }} />
+        <Btn variant="ghost" onClick={onClose}>Cancel</Btn>
+        <Btn onClick={save}>Save</Btn>
+      </div>
+    </Sheet>
   );
 }
 
@@ -1623,12 +2407,12 @@ function CapForm({ initial, ctx, onClose }) {
 
   return (
     <Sheet title={initial.id ? "Edit improvement plan" : "New improvement plan"} onClose={onClose}>
-      <Field label="Assessment plan">
+      <Field label="Audit plan">
         <Select value={c.assessmentPlanId} onChange={(e) => setC({ ...c, assessmentPlanId: e.target.value })}>
           {scopedPlans.map((p) => {
             const adv = data.advisoryInfo.find((a) => a.id === p.advisoryInfoId);
             const co = data.companies.find((x) => x.id === adv?.companyId);
-            return <option key={p.id} value={p.id}>{co?.name} · planned {fmtDate(p.planAssessmentDate)}</option>;
+            return <option key={p.id} value={p.id}>{p.auditNo ? `${p.auditNo} · ` : ""}{co?.name} · {fmtDate(p.planAssessmentDate)}</option>;
           })}
         </Select>
       </Field>
@@ -2872,6 +3656,7 @@ function ExportBar({ onExcel, onPdf }) {
 const REPORT_TABS = [
   { k: "companies", l: "Company list" },
   { k: "caps", l: "Improvement plan" },
+  { k: "risk", l: "Risk assessment" },
   { k: "visits", l: "Visit logs" },
   { k: "meetings", l: "Meeting logs" },
   { k: "committee", l: "Bipartite committee" },
@@ -2898,6 +3683,7 @@ function ReportsView({ ctx }) {
       </div>
       {tab === "companies" && <CompanyReport ctx={ctx} />}
       {tab === "caps" && <CapReport ctx={ctx} />}
+      {tab === "risk" && <RiskReport ctx={ctx} />}
       {tab === "visits" && <VisitReport ctx={ctx} />}
       {tab === "meetings" && <MeetingReport ctx={ctx} />}
       {tab === "committee" && <CommitteeReport ctx={ctx} />}
@@ -3022,6 +3808,111 @@ function CapReport({ ctx }) {
           </div>
         ))}
         {enriched.length === 0 && <EmptyState icon={FileBarChart} color={MODULE_COLORS.reports} title="No matching improvement plans" hint="Try clearing a filter." />}
+      </div>
+    </div>
+  );
+}
+
+function RiskReport({ ctx }) {
+  const { data } = ctx;
+  const [levelFilter, setLevelFilter] = useState("All");
+  const [companyFilter, setCompanyFilter] = useState("");
+
+  const enrichedAll = data.riskAssessments.map((r) => {
+    const co = data.companies.find((c) => c.id === r.companyId);
+    const score = (r.likelihood || 0) * (r.severity || 0);
+    const linkedCap = data.caps.find((c) => c.id === r.linkedCapId);
+    return { ...r, companyName: co?.name || "—", score, level: riskLevelOf(score), linkedCapLabel: linkedCap ? `${linkedCap.ncNumber} · ${linkedCap.area}` : "" };
+  });
+  const enriched = enrichedAll
+    .filter((r) => {
+      if (!inScope(ctx, r.companyId)) return false;
+      if (levelFilter !== "All" && r.level !== levelFilter) return false;
+      if (companyFilter && r.companyId !== companyFilter) return false;
+      return true;
+    })
+    .sort((a, b) => b.score - a.score);
+
+  // Excel export uses the specific column set requested for the "Risk
+  // Assessment Report" — deliberately a different, shorter set than the
+  // on-screen Risk Register below (e.g. no dates/owner, but adds Additional
+  // Controls), so it's built as its own row shape rather than reusing registerRows.
+  const excelRows = enriched.map((r) => ({
+    "No.": r.riskNo || "", "Hazards": r.hazard || "", "Existing Controls": r.existingControls || "",
+    "Likelihood": r.likelihood, "Severity": r.severity, "Risk Score": r.score,
+    "Additional Controls": r.recommendedActions || "", "Linked CAP": r.linkedCapLabel || "None",
+  }));
+
+  const registerRows = enriched.map((r) => ({
+    "Risk No.": r.riskNo || "", "Hazards": r.hazard || "", "Risk Description": r.description,
+    "Identified Date": fmtDate(r.date), "Likelihood": r.likelihood, "Severity": r.severity, "Risk Score": r.score,
+    "Risk Owner": r.assignedTo || "", "Description of Controls": r.existingControls || "",
+    "Target Completion Date": fmtDate(r.targetDate), "Linked CAP": r.linkedCapLabel || "None",
+  }));
+  const registerColumns = [
+    { key: "Risk No.", label: "Risk No." }, { key: "Hazards", label: "Hazards" }, { key: "Risk Description", label: "Description" },
+    { key: "Identified Date", label: "Identified" }, { key: "Likelihood", label: "L" }, { key: "Severity", label: "S" },
+    { key: "Risk Score", label: "Score" }, { key: "Risk Owner", label: "Owner" }, { key: "Description of Controls", label: "Controls" },
+    { key: "Target Completion Date", label: "Target" }, { key: "Linked CAP", label: "Linked CAP" },
+  ];
+
+  return (
+    <div>
+      <div style={{ display: "flex", gap: 8, padding: "0 18px 10px" }}>
+        <Select value={levelFilter} onChange={(e) => setLevelFilter(e.target.value)} style={{ flex: 1 }}>
+          {RISK_LEVEL_FILTERS.map((f) => <option key={f} value={f}>{f === "All" ? "All risk levels" : f}</option>)}
+        </Select>
+        <Select value={companyFilter} onChange={(e) => setCompanyFilter(e.target.value)} style={{ flex: 1 }}>
+          <option value="">All companies</option>
+          {ctx.visibleCompanies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+        </Select>
+      </div>
+      {enriched.length > 0 && (
+        <ExportBar
+          onExcel={() => exportExcel(excelRows, "Risk Assessment Report", `risk-assessment-report-${todayISO()}.xlsx`)}
+          onPdf={() => exportPdf("Risk Register", registerRows, registerColumns)}
+        />
+      )}
+      <div style={{ padding: "0 18px" }}>
+        {enriched.length === 0 && <EmptyState icon={AlertTriangle} color={MODULE_COLORS.reports} title="No matching risks" hint="Try clearing a filter." />}
+        {enriched.length > 0 && (
+          <div style={{ overflowX: "auto", border: `1px solid ${T.border}`, borderRadius: 12, marginBottom: 12 }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
+              <thead>
+                <tr style={{ background: T.bg }}>
+                  <th style={checklistThStyle}>Risk No.</th>
+                  <th style={checklistThStyle}>Hazards</th>
+                  <th style={checklistThStyle}>Risk Description</th>
+                  <th style={checklistThStyle}>Identified</th>
+                  <th style={checklistThStyle}>L</th>
+                  <th style={checklistThStyle}>S</th>
+                  <th style={checklistThStyle}>Score</th>
+                  <th style={checklistThStyle}>Risk Owner</th>
+                  <th style={checklistThStyle}>Description of Controls</th>
+                  <th style={checklistThStyle}>Target</th>
+                  <th style={checklistThStyle}>Linked CAP</th>
+                </tr>
+              </thead>
+              <tbody>
+                {enriched.map((r) => (
+                  <tr key={r.id} style={{ borderTop: `1px solid ${T.border}`, background: T.surface }}>
+                    <td style={{ ...checklistTdStyle, whiteSpace: "nowrap", fontWeight: 700, color: T.ink2 }}>{r.riskNo || "—"}</td>
+                    <td style={checklistTdStyle}>{r.hazard || "—"}</td>
+                    <td style={checklistTdStyle}>{r.description}</td>
+                    <td style={{ ...checklistTdStyle, whiteSpace: "nowrap" }}>{fmtDate(r.date)}</td>
+                    <td style={{ ...checklistTdStyle, textAlign: "center" }}>{r.likelihood}</td>
+                    <td style={{ ...checklistTdStyle, textAlign: "center" }}>{r.severity}</td>
+                    <td style={checklistTdStyle}><Pill tone={riskLevelTone(r.level)}>{r.score}</Pill></td>
+                    <td style={checklistTdStyle}>{r.assignedTo || "—"}</td>
+                    <td style={checklistTdStyle}>{r.existingControls || "—"}</td>
+                    <td style={{ ...checklistTdStyle, whiteSpace: "nowrap" }}>{fmtDate(r.targetDate)}</td>
+                    <td style={checklistTdStyle}>{r.linkedCapLabel || "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
     </div>
   );
