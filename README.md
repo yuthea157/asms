@@ -33,12 +33,16 @@ separate copy per browser.
    and create a new project (Google Analytics is optional, skip it).
 2. In the project, go to **Build → Firestore Database → Create database**.
    Choose **production mode** and any region close to your users.
-3. Go to **Build → Authentication → Get started**, then enable the
-   **Anonymous** sign-in provider. (This is *not* a login screen for your
-   users — the app has its own username/password screen for that. This
-   just gives every visitor a Firebase identity so Firestore rules can
-   require "must have opened the app" instead of being wide open to the
-   internet. See `src/firebase.js` for the full explanation.)
+3. Go to **Build → Authentication → Get started**, then enable two sign-in
+   providers:
+   - **Anonymous** — gives every visitor a Firebase identity before they've
+     logged in, so Firestore rules can require "must have opened the app"
+     instead of being wide open to the internet. See `src/firebase.js` for
+     the full explanation.
+   - **Email/Password** — this is the app's real login. User accounts (name,
+     role, company, permissions) still live in Firestore, but sign-in
+     itself is genuine Firebase Authentication, which is what makes the
+     "Forgot password" flow on the login screen send real reset emails.
 4. Go to **Project settings → General → Your apps**, click the web icon
    (`</>`) to register a web app, and copy the config values shown
    (`apiKey`, `authDomain`, `projectId`, etc.).
@@ -106,17 +110,25 @@ search engines/bots that scrape public repos.
 
 ## Demo accounts
 
-| Username | Password    | Role          |
-|----------|-------------|---------------|
-| dpich    | admin123    | Administrator |
-| lmeas    | manager123  | Manager       |
-| vros     | officer123  | Advisory Officer |
-| schan    | company123  | Company User (scoped to Meridian Apparel Co.) |
+Log in with **email**, not username — the login screen only asks for an
+email and a password.
 
-Passwords are stored in plain text in Firestore — fine for an internal
-demo, not suitable for real credentials. Swap in real authentication
-(e.g. Firebase Auth email/password tied to these accounts, Auth0) before
-using this with real, sensitive user data.
+| Email                       | Password   | Role                                           |
+|------------------------------|------------|-------------------------------------------------|
+| `dara@advisoryco.com`        | admin123   | Administrator                                    |
+| `lina@advisoryco.com`        | manager123 | Manager                                          |
+| `vichet@advisoryco.com`      | officer123 | Advisory Officer                                 |
+| `sokha@meridianapparel.com`  | company123 | Company User (scoped to Meridian Apparel Co.)    |
+
+These ship as legacy plaintext-password records (a holdover from before
+real authentication existed) and **migrate themselves automatically the
+first time each one logs in**: entering the password above creates a real
+Firebase Authentication account behind the scenes, links it to that
+profile, and discards the plaintext password — invisibly, in one login, no
+separate migration step. Every account created after that point (via User
+Accounts → New) is a real Firebase Auth account from the start, with no
+password ever set or stored by an admin — a real password-reset email is
+sent immediately so the new user sets their own.
 
 ## Building for production
 

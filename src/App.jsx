@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import * as XLSX from "xlsx";
 import logo from "./assets/logo.jpg";
+import { signInEmail, createEmailAccount, sendReset, createAuthUserAsAdmin, changeOwnPassword, logout as firebaseLogout } from "./firebase.js";
 import {
   Building2, CalendarClock, ClipboardList, ShieldAlert, Users as UsersIcon,
   FileBarChart, Plus, X, ChevronRight, Search, Clock, AlertTriangle,
@@ -8,7 +9,7 @@ import {
   Trash2, Pencil, TrendingUp, FileText, LogIn, Paperclip, Image as ImageIcon,
   Download, Printer, Eye, EyeOff, Lock, MessageSquare, Scale, Filter, BookOpen,
   Upload, Settings, Database, GraduationCap, Megaphone, FolderOpen, ShieldCheck,
-  ListChecks, ClipboardCheck
+  ListChecks, ClipboardCheck, LayoutDashboard
 } from "lucide-react";
 
 /* ---------------------------------------------------------------
@@ -64,6 +65,29 @@ const MODULE_COLORS = {
 };
 
 const uid = (p = "id") => `${p}_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+// Used only as a throwaway initial password for admin-created accounts —
+// the admin never sees or communicates it; a real password-reset email is
+// sent immediately so the new user sets their own.
+function randomPassword() {
+  return `${Math.random().toString(36).slice(2)}${Math.random().toString(36).slice(2)}Aa1!`;
+}
+
+// Firebase's auth/* error codes are accurate but not something to show a
+// non-technical user verbatim — this maps the ones this app can actually
+// trigger to plain language.
+function authErrorMessage(err) {
+  const code = err?.code || "";
+  if (code === "auth/invalid-email") return "That doesn't look like a valid email address.";
+  if (code === "auth/user-not-found" || code === "auth/invalid-credential" || code === "auth/wrong-password") return "Incorrect email or password.";
+  if (code === "auth/too-many-requests") return "Too many attempts — please wait a moment and try again.";
+  if (code === "auth/email-already-in-use") return "An account with that email already exists.";
+  if (code === "auth/weak-password") return "That password is too weak — use at least 6 characters.";
+  if (code === "auth/network-request-failed") return "Network error — check your connection and try again.";
+  return err?.message || "Something went wrong. Please try again.";
+}
 const fmtDate = (d) => {
   if (!d) return "—";
   const dt = new Date(d + "T00:00:00");
@@ -150,11 +174,14 @@ function seedData() {
     assessmentPlans: [
       { id: apId, advisoryInfoId: advisoryId, auditNo: "AUD-2026-01", previousAssessmentDate: "2025-08-15", planAssessmentDate: "2026-08-15", auditType: "Social Compliance", status: "Planned", reportReleasedDate: "", currentNC: 3 },
     ],
+    // No authUid on these seeded accounts — they migrate to real Firebase
+    // Authentication automatically the first time each one logs in (see
+    // RoleGate), still gated by these plaintext passwords until then.
     users: [
-      { id: uid("u"), name: "Dara Pich", username: "dpich", email: "dara@advisoryco.com", role: "admin", password: "admin123" },
-      { id: uid("u"), name: "Lina Meas", username: "lmeas", email: "lina@advisoryco.com", role: "manager", password: "manager123" },
-      { id: uid("u"), name: "Vichet Ros", username: "vros", email: "vichet@advisoryco.com", role: "officer", password: "officer123" },
-      { id: uid("u"), name: "Sokha Chan", username: "schan", email: "sokha@meridianapparel.com", role: "user", companyId, password: "company123" },
+      { id: uid("u"), name: "Dara Pich", email: "dara@advisoryco.com", role: "admin", password: "admin123" },
+      { id: uid("u"), name: "Lina Meas", email: "lina@advisoryco.com", role: "manager", password: "manager123" },
+      { id: uid("u"), name: "Vichet Ros", email: "vichet@advisoryco.com", role: "officer", password: "officer123" },
+      { id: uid("u"), name: "Sokha Chan", email: "sokha@meridianapparel.com", role: "user", companyId, password: "company123" },
     ],
     caps: [
       { id: capId, assessmentPlanId: apId, ncNumber: "NC-01", area: "Fire Safety", rootCause: "Blocked emergency exits in Building B.", correctiveActions: "Clear exits, install signage, retrain floor staff.", leadPerson: "Sokha Chan", supportPerson: "Vichet Ros", targetDate: "2026-08-01", actualDate: "", status: "In Progress", progress: 60, recommendations: "Add monthly self-audit checklist." },
@@ -219,6 +246,16 @@ function seedData() {
         likelihood: 3, severity: 4, existingControls: "Monthly fire drill; exit signage installed.",
         recommendedActions: "Relocate stored materials away from all exit routes; assign a daily housekeeping check.",
         assignedTo: "Vichet Ros", targetDate: "2026-03-15", actualCompletionDate: "", status: "Open", linkedCapId: capId,
+      },
+    ],
+    customDashboards: [
+      {
+        id: uid("dash"), name: "Factory Snapshot",
+        widgets: [
+          { id: uid("dw"), type: "open_caps" },
+          { id: uid("dw"), type: "high_risks" },
+          { id: uid("dw"), type: "upcoming_visits" },
+        ],
       },
     ],
   };
@@ -288,7 +325,7 @@ function inScope(ctx, companyId) {
 /* ---------------------------------------------------------------
    STORAGE HOOK
 ----------------------------------------------------------------*/
-const KEYS = ["companies", "advisoryInfo", "visits", "assessmentPlans", "users", "caps", "meetingLogs", "bipartiteCommittee", "capRecommendations", "permissions", "systemSettings", "trainings", "grievances", "policies", "licenses", "auditChecklists", "auditRecords", "selfAssessments", "riskAssessments"];
+const KEYS = ["companies", "advisoryInfo", "visits", "assessmentPlans", "users", "caps", "meetingLogs", "bipartiteCommittee", "capRecommendations", "permissions", "systemSettings", "trainings", "grievances", "policies", "licenses", "auditChecklists", "auditRecords", "selfAssessments", "riskAssessments", "customDashboards"];
 
 const CAP_CLUSTERS = [
   "Child Labor", "Forced Labor", "Discrimination and Harassment", "FoA & CBA",
@@ -595,9 +632,34 @@ export default function App() {
   }
 
   if (!role) {
+    // The landing tab is decided right here, at the moment of login, since
+    // it depends on the account being signed in — an assigned dashboard
+    // (Dashboard Builder) takes the user straight there; everyone else
+    // lands on Companies instead of the generic Overview.
+    const handleLogin = (u) => {
+      const hasAssignedDashboard = u.dashboardId && data.customDashboards.some((d) => d.id === u.dashboardId);
+      setRole(u);
+      setTab(hasAssignedDashboard ? "dashboard" : "companies");
+      setDetail(null);
+    };
     return (
       <Shell>
-        <RoleGate users={data.users} onEnter={setRole} />
+        <RoleGate users={data.users} update={update} onEnter={handleLogin} />
+      </Shell>
+    );
+  }
+
+  if (role.mustChangePassword) {
+    return (
+      <Shell>
+        <ForceChangePasswordScreen
+          onDone={() => {
+            const next = { ...role, mustChangePassword: false };
+            update("users", (prev) => prev.map((u) => (u.id === role.id ? next : u)));
+            setRole(next);
+          }}
+          onSignOut={() => { firebaseLogout().catch(() => {}); setRole(null); }}
+        />
       </Shell>
     );
   }
@@ -605,9 +667,13 @@ export default function App() {
   const scopeCompanyId = role.role === "user" ? (role.companyId || "__unassigned__") : null;
   const visibleCompanies = scopeCompanyId ? data.companies.filter((c) => c.id === scopeCompanyId) : data.companies;
   const ctx = { data, update, role, setDetail, scopeCompanyId, visibleCompanies };
+  // A dashboard assigned to this account (Dashboard Builder) replaces the
+  // default Overview everywhere "dashboard" is the active tab — including
+  // right after login, since tab always starts on "dashboard".
+  const assignedDashboard = role.dashboardId ? data.customDashboards.find((d) => d.id === role.dashboardId) : null;
 
   const NAV = [
-    { key: "dashboard", label: "Overview", icon: TrendingUp, color: MODULE_COLORS.dashboard },
+    { key: "dashboard", label: assignedDashboard ? assignedDashboard.name : "Overview", icon: TrendingUp, color: MODULE_COLORS.dashboard },
     { key: "companies", label: "Companies", icon: Building2, perm: "companies", color: MODULE_COLORS.companies },
     { key: "visits", label: "Advisory Visits", icon: CalendarClock, perm: "visits", color: MODULE_COLORS.visits },
     { key: "caps", label: "Improvement Plan", icon: ShieldAlert, perm: "caps", color: MODULE_COLORS.caps },
@@ -623,6 +689,7 @@ export default function App() {
     { key: "grievance", label: "Grievance Mechanism", icon: Megaphone, perm: "grievance", color: MODULE_COLORS.grievance },
     { key: "documents", label: "Documentation", icon: FolderOpen, perm: "documents", color: MODULE_COLORS.documents },
     { key: "users", label: "User Accounts", icon: UsersIcon, adminOnly: true, color: MODULE_COLORS.users },
+    { key: "dashboards", label: "Dashboard Builder", icon: LayoutDashboard, adminOnly: true, color: MODULE_COLORS.dashboard },
     { key: "reports", label: "Reports", icon: FileBarChart, perm: "reports", color: MODULE_COLORS.reports },
     { key: "sysadmin", label: "System Administration", icon: Settings, perm: "sysadmin", color: MODULE_COLORS.sysadmin },
   ].filter((n) => (n.adminOnly ? role.role === "admin" : !n.perm || hasPerm(ctx, n.perm, "view")));
@@ -641,7 +708,12 @@ export default function App() {
   else if (detail?.type === "assessment") Body = <AuditPlanDetail id={detail.id} ctx={ctx} onBack={() => setDetail(null)} />;
   else if (detail?.type === "auditRecord") Body = <AuditRecordDetail id={detail.id} ctx={ctx} onBack={() => setDetail(null)} />;
   else if (detail?.type === "selfAssessment") Body = <SelfAssessmentDetail id={detail.id} ctx={ctx} onBack={() => setDetail(null)} />;
-  else if (tab === "dashboard") Body = <Dashboard ctx={ctx} goto={(t) => { setTab(t); setDetail(null); }} />;
+  else if (tab === "dashboard") {
+    const goto = (t) => { setTab(t); setDetail(null); };
+    Body = assignedDashboard
+      ? <CustomDashboardView ctx={ctx} dashboard={assignedDashboard} goto={goto} />
+      : <Dashboard ctx={ctx} goto={goto} />;
+  }
   else if (tab === "companies" && hasPerm(ctx, "companies", "view")) Body = <CompaniesView ctx={ctx} />;
   else if (tab === "visits" && hasPerm(ctx, "visits", "view")) Body = <VisitsView ctx={ctx} />;
   else if (tab === "caps" && hasPerm(ctx, "caps", "view")) Body = <CapsView ctx={ctx} />;
@@ -655,12 +727,16 @@ export default function App() {
   else if (tab === "grievance" && hasPerm(ctx, "grievance", "view")) Body = <GrievanceView ctx={ctx} />;
   else if (tab === "documents" && hasPerm(ctx, "documents", "view")) Body = <DocumentationView ctx={ctx} />;
   else if (tab === "users" && role.role === "admin") Body = <UsersView ctx={ctx} />;
+  else if (tab === "dashboards" && role.role === "admin") Body = <DashboardBuilderView ctx={ctx} />;
   else if (tab === "reports" && hasPerm(ctx, "reports", "view")) Body = <ReportsView ctx={ctx} />;
   else if (tab === "sysadmin" && hasPerm(ctx, "sysadmin", "view")) Body = <SystemAdministrationView ctx={ctx} />;
   else Body = <RestrictedView goto={() => { setTab("dashboard"); setDetail(null); }} />;
 
   const activeMore = MORE_NAV.some((m) => m.key === tab);
   const roleLabel = ROLE_LABEL[role.role]?.split(" ")[0] || role.role;
+  // Ends the real Firebase session and restores the anonymous one Firestore
+  // rules expect, so the login screen is immediately usable for whoever's next.
+  const handleSignOut = () => { firebaseLogout().catch(() => {}); setRole(null); };
 
   if (isDesktop) {
     return (
@@ -672,7 +748,7 @@ export default function App() {
             onSelect={(k) => { setTab(k); setDetail(null); }}
           />
           <div style={{ flex: 1, overflowY: "auto", minWidth: 0 }}>
-            <AccountCorner roleLabel={roleLabel} userName={role.name} onSignOut={() => setRole(null)} />
+            <AccountCorner roleLabel={roleLabel} userName={role.name} onSignOut={handleSignOut} />
             <div style={{ maxWidth: 820, margin: "0 auto", padding: "0 0 40px" }}>{Body}</div>
           </div>
         </div>
@@ -682,7 +758,7 @@ export default function App() {
 
   return (
     <Shell>
-      <TopBar roleLabel={roleLabel} userName={role.name} onSignOut={() => setRole(null)} />
+      <TopBar roleLabel={roleLabel} userName={role.name} onSignOut={handleSignOut} />
       <div style={{ flex: 1, overflowY: "auto", paddingBottom: 86 }}>{Body}</div>
       <BottomNav
         items={NAV}
@@ -855,18 +931,69 @@ function Shell({ children, wide }) {
 /* ---------------------------------------------------------------
    ROLE GATE
 ----------------------------------------------------------------*/
-function RoleGate({ users, onEnter }) {
-  const [username, setUsername] = useState("");
+function RoleGate({ users, update, onEnter }) {
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPw, setShowPw] = useState(false);
   const [error, setError] = useState("");
+  const [resetMsg, setResetMsg] = useState("");
+  const [busy, setBusy] = useState(false);
 
-  const tryLogin = () => {
-    const u = users.find((x) => x.username.toLowerCase() === username.trim().toLowerCase());
-    if (!u) { setError("No account with that username."); return; }
-    if ((u.password || "") !== password) { setError("Incorrect password."); return; }
+  const tryLogin = async () => {
+    if (busy) return;
     setError("");
-    onEnter(u);
+    setResetMsg("");
+    const enteredEmail = email.trim().toLowerCase();
+    if (!enteredEmail || !password) { setError("Enter your email and password."); return; }
+    const match = users.find((u) => (u.email || "").trim().toLowerCase() === enteredEmail);
+    if (!match) { setError("Incorrect email or password."); return; }
+
+    setBusy(true);
+    try {
+      if (match.authUid) {
+        // Already migrated to real Firebase Authentication — normal sign-in.
+        await signInEmail(match.email, password);
+        onEnter(match);
+        return;
+      }
+      // Legacy account (predates real authentication): still checked
+      // against its plaintext password, then transparently migrated the
+      // moment that password is proven correct — the user notices nothing.
+      if (!EMAIL_RE.test(match.email || "")) {
+        setError("This account has no valid email on file. Ask an administrator to set one before signing in.");
+        return;
+      }
+      if ((match.password || "") !== password) {
+        setError("Incorrect email or password.");
+        return;
+      }
+      const cred = await createEmailAccount(match.email, password);
+      const migrated = { ...match, authUid: cred.user.uid };
+      delete migrated.password;
+      update("users", (prev) => prev.map((u) => (u.id === match.id ? migrated : u)));
+      onEnter(migrated);
+    } catch (err) {
+      setError(authErrorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const forgotPassword = async () => {
+    const enteredEmail = email.trim().toLowerCase();
+    if (!EMAIL_RE.test(enteredEmail)) { setError("Enter your email above first, then tap “Forgot password”."); return; }
+    setError("");
+    setResetMsg("");
+    setBusy(true);
+    try {
+      await sendReset(enteredEmail);
+    } catch {
+      // Deliberately swallowed — the confirmation below is shown either
+      // way, so this screen never reveals whether an email is registered.
+    } finally {
+      setBusy(false);
+      setResetMsg("If an account exists for that email, a password reset link has been sent.");
+    }
   };
 
   return (
@@ -877,8 +1004,8 @@ function RoleGate({ users, onEnter }) {
       <h1 style={{ color: "#fff", fontFamily: "'Space Grotesk', sans-serif", fontSize: 24, margin: "0 0 10px", textAlign: "center" }}>Advisory Management System</h1>
       <p style={{ color: "#9DB3AB", fontSize: 13.5, margin: "0 0 28px", textAlign: "center" }}>Case tracking for advisory visits, assessments &amp; corrective actions</p>
       <div style={{ width: "100%", background: T.surface, borderRadius: 16, padding: 20 }}>
-        <Field label="Username">
-          <TextInput value={username} onChange={(e) => setUsername(e.target.value)} placeholder="e.g. dpich"
+        <Field label="Email">
+          <TextInput type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Enter your email"
             onKeyDown={(e) => e.key === "Enter" && tryLogin()} autoCapitalize="none" autoCorrect="off" />
         </Field>
         <Field label="Password">
@@ -890,12 +1017,273 @@ function RoleGate({ users, onEnter }) {
             </button>
           </div>
         </Field>
+        <div style={{ textAlign: "right", marginBottom: 14, marginTop: -6 }}>
+          <button type="button" onClick={forgotPassword} disabled={busy} style={{ background: "none", border: "none", color: T.accent, fontSize: 12.5, fontWeight: 700, cursor: busy ? "default" : "pointer", padding: 0, fontFamily: "inherit" }}>
+            Forgot password?
+          </button>
+        </div>
         {error && <div style={{ color: T.red, fontSize: 12.5, marginBottom: 12, fontWeight: 600 }}>{error}</div>}
-        <Btn full onClick={tryLogin}>
-          <LogIn size={16} /> Sign in
+        {resetMsg && <div style={{ color: T.green, fontSize: 12.5, marginBottom: 12, fontWeight: 600 }}>{resetMsg}</div>}
+        <Btn full onClick={tryLogin} disabled={busy}>
+          <LogIn size={16} /> {busy ? "Signing in…" : "Sign in"}
         </Btn>
       </div>
     </div>
+  );
+}
+
+/**
+ * Blocks the rest of the app until an account created with an admin-set
+ * initial password sets a real one of its own. `updatePassword` only
+ * operates on `auth.currentUser`, which is already this account (they just
+ * signed in to get here) — no backend/Admin SDK needed for this part.
+ */
+function ForceChangePasswordScreen({ onDone, onSignOut }) {
+  const [pw, setPw] = useState("");
+  const [confirmPw, setConfirmPw] = useState("");
+  const [showPw, setShowPw] = useState(false);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const submit = async () => {
+    if (pw.length < 6) { setError("Password must be at least 6 characters."); return; }
+    if (pw !== confirmPw) { setError("Passwords don't match."); return; }
+    setError("");
+    setBusy(true);
+    try {
+      await changeOwnPassword(pw);
+      onDone();
+    } catch (err) {
+      setError(authErrorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div style={{ padding: "60px 26px", display: "flex", flexDirection: "column", alignItems: "center", minHeight: "100vh", justifyContent: "center", background: T.ink }}>
+      <div style={{ background: "#fff", borderRadius: 16, padding: 12, marginBottom: 18, display: "inline-flex", boxShadow: "0 8px 24px rgba(0,0,0,0.2)" }}>
+        <img src={logo} alt="Advisory Management System" style={{ width: 96, height: "auto", display: "block" }} />
+      </div>
+      <h1 style={{ color: "#fff", fontFamily: "'Space Grotesk', sans-serif", fontSize: 22, margin: "0 0 10px", textAlign: "center" }}>Set a new password</h1>
+      <p style={{ color: "#9DB3AB", fontSize: 13.5, margin: "0 0 28px", textAlign: "center", maxWidth: 320 }}>Your administrator set a temporary password for this account. Choose one only you know before continuing.</p>
+      <div style={{ width: "100%", background: T.surface, borderRadius: 16, padding: 20 }}>
+        <Field label="New password">
+          <div style={{ position: "relative" }}>
+            <TextInput type={showPw ? "text" : "password"} value={pw} onChange={(e) => setPw(e.target.value)}
+              placeholder="At least 6 characters" onKeyDown={(e) => e.key === "Enter" && submit()} style={{ paddingRight: 40 }} />
+            <button onClick={() => setShowPw((v) => !v)} type="button" style={{ position: "absolute", right: 8, top: 8, background: "none", border: "none", cursor: "pointer", padding: 4 }}>
+              {showPw ? <EyeOff size={17} color={T.muted} /> : <Eye size={17} color={T.muted} />}
+            </button>
+          </div>
+        </Field>
+        <Field label="Confirm new password">
+          <TextInput type={showPw ? "text" : "password"} value={confirmPw} onChange={(e) => setConfirmPw(e.target.value)}
+            placeholder="Type it again" onKeyDown={(e) => e.key === "Enter" && submit()} />
+        </Field>
+        {error && <div style={{ color: T.red, fontSize: 12.5, marginBottom: 12, fontWeight: 600 }}>{error}</div>}
+        <Btn full onClick={submit} disabled={busy}>
+          {busy ? "Saving…" : "Set password and continue"}
+        </Btn>
+        <div style={{ textAlign: "center", marginTop: 14 }}>
+          <button type="button" onClick={onSignOut} disabled={busy} style={{ background: "none", border: "none", color: T.muted, fontSize: 12.5, fontWeight: 600, cursor: busy ? "default" : "pointer", padding: 0, fontFamily: "inherit" }}>
+            Sign out instead
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------
+   DASHBOARD BUILDER — a fixed catalog of KPI/list widgets an admin can
+   pick, order, and assign to a user; that user then sees this instead of
+   the default Overview as soon as they log in (see role.dashboardId).
+----------------------------------------------------------------*/
+const DASHBOARD_WIDGET_CATALOG = [
+  { type: "companies_count", label: "Companies", kind: "stat", icon: Building2, tone: "blue", goto: "companies" },
+  { type: "open_caps", label: "Open Improvement Plans", kind: "stat", icon: ShieldAlert, tone: "amber", goto: "caps" },
+  { type: "overdue_caps", label: "Overdue Improvement Plans", kind: "stat", icon: AlertTriangle, tone: "red", goto: "caps" },
+  { type: "advisory_cycles", label: "Advisory Cycles", kind: "stat", icon: ClipboardList, tone: "purple", goto: "advisory" },
+  { type: "open_risks", label: "Open Risks", kind: "stat", icon: AlertTriangle, tone: "amber", goto: "risk" },
+  { type: "high_risks", label: "High / Very High Risks", kind: "stat", icon: AlertTriangle, tone: "red", goto: "risk" },
+  { type: "open_grievances", label: "Open Grievances", kind: "stat", icon: Megaphone, tone: "red", goto: "grievance" },
+  { type: "scheduled_trainings", label: "Scheduled Trainings", kind: "stat", icon: GraduationCap, tone: "blue", goto: "training" },
+  { type: "pending_self_assessments", label: "Pending Self-Assessments", kind: "stat", icon: ListChecks, tone: "amber", goto: "assessment" },
+  { type: "expiring_licenses", label: "Expiring / Expired Licenses", kind: "stat", icon: FileText, tone: "red", goto: "documents" },
+  { type: "upcoming_visits", label: "Upcoming Visits", kind: "list", icon: CalendarClock, goto: "visits" },
+  { type: "upcoming_audits", label: "Upcoming Audits", kind: "list", icon: ClipboardCheck, goto: "assessment" },
+];
+
+function computeWidget(type, ctx) {
+  const { data } = ctx;
+  const advisoryInScope = data.advisoryInfo.filter((a) => inScope(ctx, a.companyId));
+  const advisoryIds = new Set(advisoryInScope.map((a) => a.id));
+  const apInScope = data.assessmentPlans.filter((p) => advisoryIds.has(p.advisoryInfoId));
+  const apIds = new Set(apInScope.map((p) => p.id));
+  const capsInScope = data.caps.filter((c) => apIds.has(c.assessmentPlanId));
+  const visitsInScope = data.visits.filter((v) => advisoryIds.has(v.advisoryInfoId));
+  const risksInScope = data.riskAssessments.filter((r) => inScope(ctx, r.companyId));
+
+  switch (type) {
+    case "companies_count": return { value: ctx.visibleCompanies.length };
+    case "open_caps": return { value: capsInScope.filter((c) => capStatusOf(c) !== "Completed").length };
+    case "overdue_caps": return { value: capsInScope.filter((c) => capStatusOf(c) === "Overdue").length };
+    case "advisory_cycles": return { value: advisoryInScope.length };
+    case "open_risks": return { value: risksInScope.filter((r) => r.status !== "Closed").length };
+    case "high_risks":
+      return { value: risksInScope.filter((r) => r.status !== "Closed" && ["High", "Very High"].includes(riskLevelOf((r.likelihood || 0) * (r.severity || 0)))).length };
+    case "open_grievances":
+      return { value: data.grievances.filter((g) => inScope(ctx, g.companyId) && g.status !== "Resolved" && g.status !== "Closed").length };
+    case "scheduled_trainings":
+      return { value: data.trainings.filter((t) => inScope(ctx, t.companyId) && t.status === "Scheduled").length };
+    case "pending_self_assessments":
+      return { value: data.selfAssessments.filter((s) => inScope(ctx, s.companyId) && s.status === "Draft").length };
+    case "expiring_licenses":
+      return { value: data.licenses.filter((l) => inScope(ctx, l.companyId) && ["Expiring Soon", "Expired"].includes(licenseStatusOf(l))).length };
+    case "upcoming_visits": {
+      const items = [...visitsInScope].filter((v) => v.date >= todayISO()).sort((a, b) => a.date.localeCompare(b.date)).slice(0, 3).map((v) => {
+        const adv = data.advisoryInfo.find((a) => a.id === v.advisoryInfoId);
+        const co = data.companies.find((c) => c.id === adv?.companyId);
+        return { id: v.id, title: `${v.visitNumber} · ${co?.name || "—"}`, sub: `${fmtDate(v.date)} · ${v.startTime}–${v.endTime}` };
+      });
+      return { items };
+    }
+    case "upcoming_audits": {
+      const items = [...apInScope].filter((a) => a.planAssessmentDate && a.planAssessmentDate >= todayISO()).sort((a, b) => a.planAssessmentDate.localeCompare(b.planAssessmentDate)).slice(0, 3).map((a) => {
+        const adv = data.advisoryInfo.find((x) => x.id === a.advisoryInfoId);
+        const co = data.companies.find((c) => c.id === adv?.companyId);
+        return { id: a.id, title: a.auditNo || co?.name || "—", sub: `${co?.name || "—"} · Planned ${fmtDate(a.planAssessmentDate)}` };
+      });
+      return { items };
+    }
+    default: return { value: 0, items: [] };
+  }
+}
+
+function CustomDashboardView({ ctx, dashboard, goto }) {
+  const statWidgets = dashboard.widgets.filter((w) => DASHBOARD_WIDGET_CATALOG.find((c) => c.type === w.type)?.kind === "stat");
+  const listWidgets = dashboard.widgets.filter((w) => DASHBOARD_WIDGET_CATALOG.find((c) => c.type === w.type)?.kind === "list");
+  return (
+    <div>
+      <Header title={dashboard.name} subtitle={fmtDate(todayISO())} icon={LayoutDashboard} color={MODULE_COLORS.dashboard} />
+      {statWidgets.length > 0 && (
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, padding: "14px 18px" }}>
+          {statWidgets.map((w) => {
+            const def = DASHBOARD_WIDGET_CATALOG.find((c) => c.type === w.type);
+            const { value } = computeWidget(w.type, ctx);
+            return <StatCard key={w.id} label={def.label} value={value} icon={def.icon} tone={def.tone} onClick={() => goto(def.goto)} />;
+          })}
+        </div>
+      )}
+      {listWidgets.map((w) => {
+        const def = DASHBOARD_WIDGET_CATALOG.find((c) => c.type === w.type);
+        const { items } = computeWidget(w.type, ctx);
+        return (
+          <div key={w.id}>
+            <SectionLabel>{def.label}</SectionLabel>
+            <div style={{ padding: "0 18px" }}>
+              {(!items || items.length === 0) && <EmptyRow text="Nothing to show." />}
+              {items?.map((it) => <Row key={it.id} onClick={() => goto(def.goto)} left={<def.icon size={16} color={T.accent} />} title={it.title} sub={it.sub} />)}
+            </div>
+          </div>
+        );
+      })}
+      {dashboard.widgets.length === 0 && <EmptyState icon={LayoutDashboard} color={MODULE_COLORS.dashboard} title="Empty dashboard" hint="Ask an administrator to add widgets to this dashboard." />}
+    </div>
+  );
+}
+
+function DashboardBuilderView({ ctx }) {
+  const { data } = ctx;
+  const [form, setForm] = useState(null);
+  return (
+    <div>
+      <Header title="Dashboard Builder" subtitle={`${data.customDashboards.length} custom dashboard${data.customDashboards.length === 1 ? "" : "s"}`} icon={LayoutDashboard} color={MODULE_COLORS.dashboard}
+        action={<Btn small onClick={() => setForm({})}><Plus size={15} />New dashboard</Btn>} />
+      <div style={{ padding: "10px 18px" }}>
+        {data.customDashboards.length === 0 && <EmptyState icon={LayoutDashboard} color={MODULE_COLORS.dashboard} title="No custom dashboards yet" hint="Design a dashboard, then assign it to a user from their account." />}
+        {data.customDashboards.map((d) => {
+          const assignedCount = data.users.filter((u) => u.dashboardId === d.id).length;
+          return (
+            <Row key={d.id} onClick={() => setForm(d)} left={<LayoutDashboard size={16} color={T.accent} />}
+              title={d.name} sub={`${d.widgets.length} widget${d.widgets.length === 1 ? "" : "s"} · assigned to ${assignedCount} user${assignedCount === 1 ? "" : "s"}`} />
+          );
+        })}
+      </div>
+      {form && <DashboardBuilderForm initial={form} ctx={ctx} onClose={() => setForm(null)} />}
+    </div>
+  );
+}
+
+function DashboardBuilderForm({ initial, ctx, onClose }) {
+  const { update } = ctx;
+  const [name, setName] = useState(initial.name || "");
+  const [widgets, setWidgets] = useState(initial.widgets || []);
+
+  const isSelected = (type) => widgets.some((w) => w.type === type);
+  const toggle = (type) => {
+    setWidgets((prev) => (isSelected(type) ? prev.filter((w) => w.type !== type) : [...prev, { id: uid("dw"), type }]));
+  };
+  const move = (idx, dir) => {
+    setWidgets((prev) => {
+      const next = [...prev];
+      const target = idx + dir;
+      if (target < 0 || target >= next.length) return prev;
+      [next[idx], next[target]] = [next[target], next[idx]];
+      return next;
+    });
+  };
+
+  const save = () => {
+    if (!name.trim()) return;
+    const record = { id: initial.id || uid("dash"), name: name.trim(), widgets };
+    update("customDashboards", (prev) => (initial.id && prev.some((x) => x.id === initial.id) ? prev.map((x) => (x.id === initial.id ? record : x)) : [...prev, record]));
+    onClose();
+  };
+  const remove = () => {
+    update("customDashboards", (prev) => prev.filter((x) => x.id !== initial.id));
+    update("users", (prev) => prev.map((u) => (u.dashboardId === initial.id ? { ...u, dashboardId: "" } : u)));
+    onClose();
+  };
+
+  return (
+    <Sheet title={initial.id ? "Edit dashboard" : "New dashboard"} onClose={onClose}>
+      <Field label="Dashboard name"><TextInput value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Executive Summary" /></Field>
+      <Field label={`Widgets (${widgets.length} selected)`}>
+        <div style={{ border: `1px solid ${T.border}`, borderRadius: 10, maxHeight: 240, overflowY: "auto" }}>
+          {DASHBOARD_WIDGET_CATALOG.map((wdef) => (
+            <label key={wdef.type} style={{ display: "flex", gap: 8, alignItems: "center", padding: "9px 10px", borderTop: `1px solid ${T.border}`, cursor: "pointer" }}>
+              <input type="checkbox" checked={isSelected(wdef.type)} onChange={() => toggle(wdef.type)} />
+              <wdef.icon size={14} color={T.muted} />
+              <span style={{ fontSize: 12.5, color: T.ink2 }}>{wdef.label}</span>
+            </label>
+          ))}
+        </div>
+      </Field>
+      {widgets.length > 0 && (
+        <Field label="Order">
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {widgets.map((w, idx) => {
+              const def = DASHBOARD_WIDGET_CATALOG.find((c) => c.type === w.type);
+              return (
+                <div key={w.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", background: T.bg, borderRadius: 8 }}>
+                  <span style={{ flex: 1, fontSize: 12.5, color: T.ink2 }}>{def?.label}</span>
+                  <button type="button" onClick={() => move(idx, -1)} disabled={idx === 0} style={{ border: "none", background: "none", cursor: idx === 0 ? "default" : "pointer", opacity: idx === 0 ? 0.3 : 1, fontSize: 13 }}>▲</button>
+                  <button type="button" onClick={() => move(idx, 1)} disabled={idx === widgets.length - 1} style={{ border: "none", background: "none", cursor: idx === widgets.length - 1 ? "default" : "pointer", opacity: idx === widgets.length - 1 ? 0.3 : 1, fontSize: 13 }}>▼</button>
+                </div>
+              );
+            })}
+          </div>
+        </Field>
+      )}
+      <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
+        {initial.id && <Btn variant="danger" onClick={remove}><Trash2 size={15} /> Delete</Btn>}
+        <div style={{ flex: 1 }} />
+        <Btn variant="ghost" onClick={onClose}>Cancel</Btn>
+        <Btn onClick={save}>Save</Btn>
+      </div>
+    </Sheet>
   );
 }
 
@@ -3439,24 +3827,69 @@ function UsersView({ ctx }) {
   const { data, update, role } = ctx;
   const [tab, setTab] = useState("accounts");
   const [form, setForm] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState("");
+  const [resetMsg, setResetMsg] = useState("");
   const isAdmin = role.role === "admin";
 
-  const save = (u) => {
-    update("users", (prev) => {
-      if (u.id && prev.some((p) => p.id === u.id)) {
-        return prev.map((p) => (p.id === u.id ? { ...u, password: u.password ? u.password : p.password } : p));
+  const openForm = (u) => { setForm(u); setSaveError(""); setResetMsg(""); };
+  const closeForm = () => { setForm(null); setSaveError(""); setResetMsg(""); };
+
+  const save = async (u) => {
+    const email = (u.email || "").trim().toLowerCase();
+    if (!EMAIL_RE.test(email)) { setSaveError("Enter a valid email address."); return; }
+    const duplicate = data.users.some((p) => p.id !== u.id && (p.email || "").trim().toLowerCase() === email);
+    if (duplicate) { setSaveError("An account with that email already exists."); return; }
+    if (!u.id && (u.initialPassword || "").length < 6) { setSaveError("Set an initial password of at least 6 characters."); return; }
+
+    setSaving(true);
+    setSaveError("");
+    try {
+      if (u.id) {
+        // Editing an existing account: email is read-only (see UserFields —
+        // the client SDK can't change another user's Firebase Auth email
+        // without a backend), so this is a plain profile update. Deliberately
+        // NOT touching password/authUid here — `u` already carries whatever
+        // the record had (UserFields never exposes those fields to edit),
+        // and a not-yet-migrated legacy account's plaintext password must
+        // survive an admin's edit, or that person could never log in again
+        // to self-migrate (see RoleGate).
+        update("users", (prev) => prev.map((p) => (p.id === u.id ? { ...u, email: p.email } : p)));
+        closeForm();
+      } else {
+        // New account: admin sets the initial password directly (via a
+        // secondary Firebase App instance, so the admin's own session isn't
+        // disturbed) — the account is flagged mustChangePassword so the
+        // real password never stays admin-known past the first login.
+        const authUid = await createAuthUserAsAdmin(email, u.initialPassword);
+        update("users", (prev) => [...prev, { ...u, email, id: uid("u"), authUid, password: undefined, initialPassword: undefined, mustChangePassword: true }]);
+        closeForm();
       }
-      return [...prev, { ...u, id: uid("u"), password: u.password || "changeme" }];
-    });
-    setForm(null);
+    } catch (err) {
+      setSaveError(authErrorMessage(err));
+    } finally {
+      setSaving(false);
+    }
   };
-  const remove = (id) => { update("users", (prev) => prev.filter((p) => p.id !== id)); setForm(null); };
+  const remove = (id) => { update("users", (prev) => prev.filter((p) => p.id !== id)); closeForm(); };
+  const resendSetupEmail = async (email) => {
+    setSaving(true);
+    setResetMsg("");
+    try {
+      await sendReset(email);
+      setResetMsg(`Password reset email sent to ${email}.`);
+    } catch (err) {
+      setSaveError(authErrorMessage(err));
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
     <div>
       <Header title="User Accounts" subtitle={tab === "accounts" ? `${data.users.length} accounts` : "Who can view, edit, or delete each module"}
         icon={UsersIcon} color={MODULE_COLORS.users}
-        action={tab === "accounts" && isAdmin ? <Btn small onClick={() => setForm({})}><Plus size={15} />New</Btn> : null} />
+        action={tab === "accounts" && isAdmin ? <Btn small onClick={() => openForm({})}><Plus size={15} />New</Btn> : null} />
       {isAdmin && (
         <div style={{ display: "flex", gap: 6, padding: "10px 18px" }}>
           {[{ k: "accounts", l: "Accounts" }, { k: "permissions", l: "Permission Matrix" }].map((t) => (
@@ -3475,8 +3908,8 @@ function UsersView({ ctx }) {
           {data.users.map((u) => {
             const co = u.role === "user" ? data.companies.find((c) => c.id === u.companyId) : null;
             return (
-              <Row key={u.id} onClick={isAdmin ? () => setForm(u) : undefined} left={<UsersIcon size={16} color={T.accent} />}
-                title={u.name} sub={u.role === "user" ? `${u.username} · ${co?.name || "No company assigned"}` : `${u.username} · ${u.email}`}
+              <Row key={u.id} onClick={isAdmin ? () => openForm(u) : undefined} left={<UsersIcon size={16} color={T.accent} />}
+                title={u.name} sub={u.role === "user" ? `${u.email} · ${co?.name || "No company assigned"}` : u.email}
                 right={<Pill tone={u.role === "admin" ? "accent" : u.role === "manager" ? "blue" : u.role === "user" ? "green" : "muted"}>{ROLE_LABEL[u.role]}</Pill>} />
             );
           })}
@@ -3486,14 +3919,24 @@ function UsersView({ ctx }) {
       )}
 
       {form && isAdmin && (
-        <Sheet title={form.id ? "Edit user" : "New user account"} onClose={() => setForm(null)}>
-          <UserFields form={form} setForm={setForm} companies={data.companies} />
+        <Sheet title={form.id ? "Edit user" : "New user account"} onClose={closeForm}>
+          <UserFields form={form} setForm={setForm} companies={data.companies} dashboards={data.customDashboards} />
+          {form.id && (
+            <div style={{ marginBottom: 14 }}>
+              <Btn variant="ghost" small onClick={() => resendSetupEmail(form.email)} disabled={saving}>
+                <Mail size={13} /> Send password reset email
+              </Btn>
+            </div>
+          )}
+          {saveError && <div style={{ color: T.red, fontSize: 12.5, marginBottom: 12, fontWeight: 600 }}>{saveError}</div>}
+          {resetMsg && <div style={{ color: T.green, fontSize: 12.5, marginBottom: 12, fontWeight: 600 }}>{resetMsg}</div>}
           <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
-            {form.id && <Btn variant="danger" onClick={() => remove(form.id)}><Trash2 size={15} /> Delete</Btn>}
+            {form.id && <Btn variant="danger" onClick={() => remove(form.id)} disabled={saving}><Trash2 size={15} /> Delete</Btn>}
             <div style={{ flex: 1 }} />
-            <Btn variant="ghost" onClick={() => setForm(null)}>Cancel</Btn>
-            <Btn onClick={() => form.name && form.username && (form.role !== "user" || form.companyId) && save(form)}>Save</Btn>
+            <Btn variant="ghost" onClick={closeForm} disabled={saving}>Cancel</Btn>
+            <Btn onClick={() => form.name && (form.role !== "user" || form.companyId) && (form.id || (form.initialPassword || "").length >= 6) && save(form)} disabled={saving}>{saving ? "Saving…" : "Save"}</Btn>
           </div>
+          {form.id && <div style={{ fontSize: 11, color: T.muted, marginTop: 10 }}>Deleting removes this person's access to the app immediately. Their Firebase sign-in account itself isn't deleted — do that from the Firebase Console if needed.</div>}
         </Sheet>
       )}
     </div>
@@ -3566,15 +4009,33 @@ function PermCheck({ checked, onClick, tone = "accent" }) {
   );
 }
 
-function UserFields({ form, setForm, companies }) {
+function UserFields({ form, setForm, companies, dashboards = [] }) {
+  const emailValid = EMAIL_RE.test(form.email || "");
   return (
     <>
       <Field label="Full name"><TextInput value={form.name || ""} onChange={(e) => setForm({ ...form, name: e.target.value })} /></Field>
-      <Field label="Username"><TextInput value={form.username || ""} onChange={(e) => setForm({ ...form, username: e.target.value })} autoCapitalize="none" /></Field>
-      <Field label="Email"><TextInput type="email" value={form.email || ""} onChange={(e) => setForm({ ...form, email: e.target.value })} /></Field>
-      <Field label={form.id ? "Password (leave blank to keep current)" : "Password"}>
-        <TextInput type="text" value={form.password || ""} onChange={(e) => setForm({ ...form, password: e.target.value })} placeholder="Set a password" />
+      <Field label={form.id ? "Email" : "Email (this becomes their sign-in address)"}>
+        {form.id ? (
+          <>
+            <TextInput type="email" value={form.email || ""} disabled style={{ background: T.bg, color: T.muted }} />
+            <div style={{ fontSize: 11.5, color: T.muted, marginTop: 6 }}>Can't be changed here — the sign-in email for an existing account can't be updated without the user's own session. Delete and re-create the account if it must change.</div>
+          </>
+        ) : (
+          <>
+            <TextInput type="email" value={form.email || ""} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="name@company.com" />
+            {form.email && !emailValid && <div style={{ fontSize: 11.5, color: T.red, marginTop: 6 }}>Enter a valid email address.</div>}
+          </>
+        )}
       </Field>
+      {!form.id && (
+        <Field label="Initial password">
+          <div style={{ display: "flex", gap: 8 }}>
+            <TextInput type="text" value={form.initialPassword || ""} onChange={(e) => setForm({ ...form, initialPassword: e.target.value })} placeholder="At least 6 characters" style={{ flex: 1 }} />
+            <Btn type="button" variant="ghost" small onClick={() => setForm({ ...form, initialPassword: randomPassword() })}>Generate</Btn>
+          </div>
+          <div style={{ fontSize: 11.5, color: T.muted, marginTop: 6 }}>Share this with them however you'd normally communicate — they'll be required to set their own password the moment they first sign in with it.</div>
+        </Field>
+      )}
       <Field label="Role">
         <Select value={form.role || "officer"} onChange={(e) => setForm({ ...form, role: e.target.value })}>
           <option value="admin">Administrator</option>
@@ -3592,8 +4053,15 @@ function UserFields({ form, setForm, companies }) {
           <div style={{ fontSize: 11.5, color: T.muted, marginTop: 6 }}>This account will only see data for the selected company, within the modules granted in the Permission Matrix.</div>
         </Field>
       )}
+      <Field label="Assigned dashboard (optional)">
+        <Select value={form.dashboardId || ""} onChange={(e) => setForm({ ...form, dashboardId: e.target.value })}>
+          <option value="">— Default Overview —</option>
+          {dashboards.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+        </Select>
+        <div style={{ fontSize: 11.5, color: T.muted, marginTop: 6 }}>Shown automatically in place of the default Overview as soon as this user logs in. Build dashboards from Dashboard Builder.</div>
+      </Field>
       <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11.5, color: T.muted, marginTop: -6 }}>
-        <Lock size={12} /> Stored as plain text in Firestore — fine for internal use, not for sensitive credentials.
+        <Lock size={12} /> Signed in via real Firebase Authentication — no password is stored or visible here.
       </div>
     </>
   );
