@@ -5,11 +5,11 @@ import { signInEmail, createEmailAccount, sendReset, createAuthUserAsAdmin, chan
 import {
   Building2, CalendarClock, ClipboardList, ShieldAlert, Users as UsersIcon,
   FileBarChart, Plus, X, ChevronRight, Search, Clock, AlertTriangle,
-  CheckCircle2, Circle, MoreHorizontal, ArrowLeft, Phone, Mail, MapPin,
+  CheckCircle2, Circle, ArrowLeft, Phone, Mail, MapPin,
   Trash2, Pencil, TrendingUp, FileText, LogIn, Paperclip, Image as ImageIcon,
   Download, Printer, Eye, EyeOff, Lock, MessageSquare, Scale, Filter, BookOpen,
   Upload, Settings, Database, GraduationCap, Megaphone, FolderOpen, ShieldCheck,
-  ListChecks, ClipboardCheck, LayoutDashboard
+  ListChecks, ClipboardCheck, LayoutDashboard, Menu
 } from "lucide-react";
 
 /* ---------------------------------------------------------------
@@ -616,7 +616,7 @@ export default function App() {
   const { data, ready, update } = useStore();
   const [role, setRole] = useState(null);
   const [tab, setTab] = useState("dashboard");
-  const [moreOpen, setMoreOpen] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [detail, setDetail] = useState(null); // {type:'company'|'advisory'|'assessment', id}
   const viewportWidth = useViewportWidth();
   const isDesktop = viewportWidth >= DESKTOP_BP;
@@ -732,7 +732,6 @@ export default function App() {
   else if (tab === "sysadmin" && hasPerm(ctx, "sysadmin", "view")) Body = <SystemAdministrationView ctx={ctx} />;
   else Body = <RestrictedView goto={() => { setTab("dashboard"); setDetail(null); }} />;
 
-  const activeMore = MORE_NAV.some((m) => m.key === tab);
   const roleLabel = ROLE_LABEL[role.role]?.split(" ")[0] || role.role;
   // Ends the real Firebase session and restores the anonymous one Firestore
   // rules expect, so the login screen is immediately usable for whoever's next.
@@ -758,42 +757,33 @@ export default function App() {
 
   return (
     <Shell>
-      <TopBar roleLabel={roleLabel} userName={role.name} onSignOut={handleSignOut} />
-      <div style={{ flex: 1, overflowY: "auto", paddingBottom: 86 }}>{Body}</div>
-      <BottomNav
-        items={NAV}
-        moreItems={MORE_NAV}
-        tab={tab}
-        detail={detail}
-        moreOpen={moreOpen}
-        activeMore={activeMore}
-        onSelect={(k) => { setTab(k); setDetail(null); setMoreOpen(false); }}
-        onToggleMore={() => setMoreOpen((v) => !v)}
-        onCloseMore={() => setMoreOpen(false)}
+      <TopBar roleLabel={roleLabel} userName={role.name} onSignOut={handleSignOut} onOpenMenu={() => setMobileMenuOpen(true)} />
+      <div style={{ flex: 1, overflowY: "auto", minWidth: 0 }}>{Body}</div>
+      <MobileMenu
+        items={[...NAV, ...MORE_NAV]}
+        activeKey={detail ? null : tab}
+        open={mobileMenuOpen}
+        onClose={() => setMobileMenuOpen(false)}
+        onSelect={(k) => { setTab(k); setDetail(null); setMobileMenuOpen(false); }}
       />
     </Shell>
   );
 }
 
-function NavBtn({ icon: Icon, label, active, color = T.accent, onClick }) {
-  return (
-    <button onClick={onClick} style={{
-      flex: 1, background: "none", border: "none", display: "flex", flexDirection: "column",
-      alignItems: "center", gap: 2, padding: "5px 2px", cursor: "pointer", fontFamily: "inherit",
-    }}>
-      <IconChip icon={Icon} color={active ? color : T.muted} size={30} iconSize={17} strokeWidth={active ? 2.3 : 1.9} />
-      <span style={{ fontSize: 10.5, fontWeight: 700, color: active ? color : T.muted }}>{label}</span>
-    </button>
-  );
-}
-
 // Top bar used by the mobile ("phone card") layout only — the desktop
 // layout uses AccountCorner (below) for the account/sign-out control instead,
-// since SideNav's own header is branding-only there.
-function TopBar({ roleLabel, userName, onSignOut }) {
+// since SideNav's own header is branding-only there. The hamburger button on
+// the left opens MobileMenu, mobile's equivalent of the desktop SideNav.
+function TopBar({ roleLabel, userName, onSignOut, onOpenMenu }) {
   return (
     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 18px", borderBottom: `1px solid ${T.border}`, background: T.ink }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+        <button onClick={onOpenMenu} aria-label="Open menu" style={{
+          background: "none", border: "none", cursor: "pointer", padding: 6, marginLeft: -6,
+          flexShrink: 0, display: "grid", placeItems: "center", borderRadius: 8,
+        }}>
+          <Menu size={21} color="#fff" />
+        </button>
         <div style={{ width: 26, height: 26, borderRadius: 7, background: "#fff", display: "grid", placeItems: "center", flexShrink: 0, overflow: "hidden" }}>
           <img src={logo} alt="Logo" style={{ width: "100%", height: "100%", objectFit: "contain" }} />
         </div>
@@ -805,6 +795,49 @@ function TopBar({ roleLabel, userName, onSignOut }) {
       <button onClick={onSignOut} style={{ background: "rgba(255,255,255,0.1)", border: "none", color: "#fff", fontSize: 11.5, fontWeight: 700, padding: "6px 10px", borderRadius: 999, cursor: "pointer", flexShrink: 0 }}>
         {roleLabel?.split(" ")[0] || ""} · {userName.split(" ")[0]}
       </button>
+    </div>
+  );
+}
+
+// Mobile navigation drawer, opened from TopBar's top-left hamburger button —
+// mobile's equivalent of the desktop SideNav (same items, same styling
+// language), rendered as a slide-in overlay instead of a persistent column
+// since a phone doesn't have the width to spare for one.
+function MobileMenu({ items, activeKey, open, onClose, onSelect }) {
+  if (!open) return null;
+  return (
+    <div style={{ position: "fixed", inset: 0, zIndex: 60 }}>
+      <div onClick={onClose} style={{ position: "absolute", inset: 0, background: "rgba(22,50,58,0.45)" }} />
+      <div style={{
+        position: "absolute", top: 0, left: 0, bottom: 0, width: "min(268px, 82vw)",
+        background: T.ink, display: "flex", flexDirection: "column",
+        boxShadow: "6px 0 28px rgba(0,0,0,0.25)", animation: "slideInLeft .18s ease-out",
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "18px 16px 14px" }}>
+          <div style={{ width: 30, height: 30, borderRadius: 8, background: "#fff", display: "grid", placeItems: "center", flexShrink: 0, overflow: "hidden" }}>
+            <img src={logo} alt="Logo" style={{ width: "100%", height: "100%", objectFit: "contain" }} />
+          </div>
+          <span style={{ color: "#fff", fontFamily: "'Space Grotesk', sans-serif", fontSize: 14, lineHeight: 1.25, flex: 1, minWidth: 0 }}>Advisory Management System</span>
+          <button onClick={onClose} aria-label="Close menu" style={{ background: "none", border: "none", cursor: "pointer", padding: 4, flexShrink: 0, display: "grid", placeItems: "center" }}>
+            <X size={19} color="#fff" />
+          </button>
+        </div>
+        <div style={{ flex: 1, overflowY: "auto", padding: "6px 10px 14px" }}>
+          {items.map((n) => (
+            <button key={n.key} onClick={() => onSelect(n.key)} style={{
+              width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "10px 10px", marginBottom: 2,
+              borderRadius: 10, border: "none", cursor: "pointer", textAlign: "left", fontFamily: "inherit", fontSize: 14, fontWeight: 700,
+              background: activeKey === n.key ? "rgba(255,255,255,0.12)" : "transparent",
+              color: activeKey === n.key ? "#fff" : "#9DB3AB",
+            }}>
+              <IconChip icon={n.icon} color={n.color || "#9DB3AB"} size={30} iconSize={17}
+                strokeWidth={activeKey === n.key ? 2.3 : 1.9} background="transparent"
+                style={{ opacity: activeKey === n.key ? 1 : 0.6 }} />
+              {n.label}
+            </button>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }
@@ -826,50 +859,9 @@ function AccountCorner({ roleLabel, userName, onSignOut }) {
   );
 }
 
-// Bottom tab bar + its "More" overflow popover — the mobile navigation
-// pattern. `items` are the always-visible tabs; `moreItems` collapse behind
-// the overflow button since a phone-width bar can't fit every section.
-function BottomNav({ items, moreItems, tab, detail, moreOpen, activeMore, onSelect, onToggleMore, onCloseMore }) {
-  return (
-    <>
-      <nav style={{
-        position: "sticky", bottom: 0, background: T.surface, borderTop: `1px solid ${T.border}`,
-        display: "flex", padding: "6px 4px calc(6px + env(safe-area-inset-bottom))", zIndex: 40,
-      }}>
-        {items.map((n) => (
-          <NavBtn key={n.key} icon={n.icon} label={n.label} color={n.color} active={tab === n.key && !detail} onClick={() => onSelect(n.key)} />
-        ))}
-        <NavBtn icon={MoreHorizontal} label="More" color={T.ink2} active={activeMore || moreOpen} onClick={onToggleMore} />
-      </nav>
-
-      {moreOpen && (
-        <div style={{ position: "fixed", inset: 0, zIndex: 50 }} onClick={onCloseMore}>
-          <div style={{ position: "absolute", inset: 0, background: "rgba(22,50,58,0.35)" }} />
-          <div onClick={(e) => e.stopPropagation()} style={{
-            position: "absolute", bottom: 78, right: 12, background: T.surface, borderRadius: 14,
-            boxShadow: "0 10px 30px rgba(0,0,0,0.2)", overflow: "hidden", width: 220, border: `1px solid ${T.border}`,
-          }}>
-            {moreItems.map((m) => (
-              <button key={m.key} onClick={() => onSelect(m.key)} style={{
-                width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "10px 14px",
-                background: tab === m.key ? `${m.color || T.accent}14` : "transparent", border: "none", borderBottom: `1px solid ${T.border}`,
-                fontSize: 14.5, color: T.ink, cursor: "pointer", textAlign: "left", fontFamily: "inherit", fontWeight: 600,
-              }}>
-                <IconChip icon={m.icon} color={m.color || T.accent} size={30} iconSize={16} />
-                {m.label}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-    </>
-  );
-}
-
-// Persistent desktop sidebar — replaces TopBar + BottomNav above the
-// DESKTOP_BP breakpoint. There's room to show every nav item flat (no
-// "More" overflow needed) since a sidebar isn't fighting for horizontal
-// space the way a phone-width bottom bar is.
+// Persistent desktop sidebar — replaces TopBar + MobileMenu above the
+// DESKTOP_BP breakpoint. There's room to show every nav item flat since a
+// sidebar isn't fighting for horizontal space the way mobile chrome is.
 function SideNav({ items, activeKey, onSelect }) {
   return (
     <div style={{
@@ -907,12 +899,14 @@ function Shell({ children, wide }) {
       maxWidth: wide ? "none" : 460, margin: "0 auto", minHeight: "100vh", background: T.bg,
       display: "flex", flexDirection: "column", fontFamily: "'Inter', -apple-system, sans-serif",
       position: "relative", boxShadow: wide ? "none" : "0 0 40px rgba(0,0,0,0.06)",
+      overflowX: wide ? "visible" : "hidden", width: wide ? undefined : "100%",
     }}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700;800&display=swap');
         * { box-sizing: border-box; }
         body { margin: 0; }
         @keyframes slideUp { from { transform: translateY(24px); opacity: 0.4 } to { transform: translateY(0); opacity: 1 } }
+        @keyframes slideInLeft { from { transform: translateX(-100%) } to { transform: translateX(0) } }
         @keyframes fadeScaleIn { from { transform: scale(0.96); opacity: 0.4 } to { transform: scale(1); opacity: 1 } }
         input:focus, select:focus, textarea:focus { border-color: ${T.accent} !important; box-shadow: 0 0 0 3px ${T.accentSoft}; }
         ::-webkit-scrollbar { width: 0; height: 0; }
