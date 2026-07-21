@@ -269,6 +269,7 @@ function seedData() {
    the single company they're assigned to (see inScope / scopeCompanyId).
 ----------------------------------------------------------------*/
 const PERMISSION_MODULES = [
+  { key: "dashboard", label: "Overview" },
   { key: "companies", label: "Companies" },
   { key: "advisory", label: "Advisory Cycles" },
   { key: "visits", label: "Advisory Visits" },
@@ -293,17 +294,17 @@ function defaultPermissions() {
   const none = { view: false, edit: false, delete: false };
   return {
     manager: {
-      companies: full, advisory: full, visits: full, assessment: full, risk: full, caps: full,
+      dashboard: viewOnly, companies: full, advisory: full, visits: full, assessment: full, risk: full, caps: full,
       meetings: editOnly, committee: editOnly, caprecs: editOnly, reports: viewOnly, sysadmin: none,
       training: editOnly, grievance: editOnly, documents: editOnly,
     },
     officer: {
-      companies: viewOnly, advisory: viewOnly, visits: editOnly, assessment: viewOnly, risk: editOnly, caps: editOnly,
+      dashboard: viewOnly, companies: viewOnly, advisory: viewOnly, visits: editOnly, assessment: viewOnly, risk: editOnly, caps: editOnly,
       meetings: editOnly, committee: viewOnly, caprecs: viewOnly, reports: viewOnly, sysadmin: none,
       training: editOnly, grievance: editOnly, documents: editOnly,
     },
     user: {
-      companies: viewOnly, advisory: viewOnly, visits: viewOnly, assessment: viewOnly, risk: viewOnly, caps: viewOnly,
+      dashboard: viewOnly, companies: viewOnly, advisory: viewOnly, visits: viewOnly, assessment: viewOnly, risk: viewOnly, caps: viewOnly,
       meetings: viewOnly, committee: viewOnly, caprecs: none, reports: viewOnly, sysadmin: none,
       training: viewOnly, grievance: viewOnly, documents: viewOnly,
     },
@@ -312,7 +313,14 @@ function defaultPermissions() {
 
 function hasPerm(ctx, moduleKey, action) {
   if (ctx.role.role === "admin") return true;
-  const perms = ctx.data.permissions?.[ctx.role.role]?.[moduleKey];
+  // Falls back to the coded default when a module is entirely absent from
+  // the live permissions doc — a role that already existed in Firestore
+  // before a module was added won't have that key yet, and "missing" here
+  // must mean "use the sensible default", not "deny": an admin's explicit
+  // choice (even an explicit all-false "none") is a real object and always
+  // wins over the fallback, since ?? only applies when the value is
+  // null/undefined, never for an existing-but-restrictive object.
+  const perms = ctx.data.permissions?.[ctx.role.role]?.[moduleKey] ?? defaultPermissions()[ctx.role.role]?.[moduleKey];
   return !!(perms && perms[action]);
 }
 
@@ -633,13 +641,15 @@ export default function App() {
 
   if (!role) {
     // The landing tab is decided right here, at the moment of login, since
-    // it depends on the account being signed in — an assigned dashboard
-    // (Dashboard Builder) takes the user straight there; everyone else
-    // lands on Companies instead of the generic Overview.
+    // it depends on the account being signed in. Default is Overview — the
+    // "dashboard" tab itself already shows the assigned dashboard in place
+    // of the generic Overview when one exists (see assignedDashboard
+    // below) — so the only reason to land somewhere else is not having
+    // permission to view Overview at all, in which case Companies instead.
     const handleLogin = (u) => {
-      const hasAssignedDashboard = u.dashboardId && data.customDashboards.some((d) => d.id === u.dashboardId);
+      const canViewDashboard = u.role === "admin" || !!(data.permissions?.[u.role]?.dashboard ?? defaultPermissions()[u.role]?.dashboard)?.view;
       setRole(u);
-      setTab(hasAssignedDashboard ? "dashboard" : "companies");
+      setTab(canViewDashboard ? "dashboard" : "companies");
       setDetail(null);
     };
     return (
@@ -673,7 +683,7 @@ export default function App() {
   const assignedDashboard = role.dashboardId ? data.customDashboards.find((d) => d.id === role.dashboardId) : null;
 
   const NAV = [
-    { key: "dashboard", label: assignedDashboard ? assignedDashboard.name : "Overview", icon: TrendingUp, color: MODULE_COLORS.dashboard },
+    { key: "dashboard", label: assignedDashboard ? assignedDashboard.name : "Overview", icon: TrendingUp, perm: "dashboard", color: MODULE_COLORS.dashboard },
     { key: "companies", label: "Companies", icon: Building2, perm: "companies", color: MODULE_COLORS.companies },
     { key: "visits", label: "Advisory Visits", icon: CalendarClock, perm: "visits", color: MODULE_COLORS.visits },
     { key: "caps", label: "Improvement Plan", icon: ShieldAlert, perm: "caps", color: MODULE_COLORS.caps },
@@ -708,7 +718,7 @@ export default function App() {
   else if (detail?.type === "assessment") Body = <AuditPlanDetail id={detail.id} ctx={ctx} onBack={() => setDetail(null)} />;
   else if (detail?.type === "auditRecord") Body = <AuditRecordDetail id={detail.id} ctx={ctx} onBack={() => setDetail(null)} />;
   else if (detail?.type === "selfAssessment") Body = <SelfAssessmentDetail id={detail.id} ctx={ctx} onBack={() => setDetail(null)} />;
-  else if (tab === "dashboard") {
+  else if (tab === "dashboard" && hasPerm(ctx, "dashboard", "view")) {
     const goto = (t) => { setTab(t); setDetail(null); };
     Body = assignedDashboard
       ? <CustomDashboardView ctx={ctx} dashboard={assignedDashboard} goto={goto} />
