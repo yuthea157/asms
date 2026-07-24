@@ -2986,7 +2986,7 @@ function CapForm({ initial, ctx, onClose }) {
           }} style={{ marginBottom: 8 }}>
             <option value="">Insert from CAP recommendations…</option>
             {data.capRecommendations.map((r) => (
-              <option key={r.id} value={r.rootCause}>{r.ncNo} · {r.area} ({r.cluster})</option>
+              <option key={r.id} value={r.rootCause}>{r.ncNo} · {r.rootCause}</option>
             ))}
           </Select>
         )}
