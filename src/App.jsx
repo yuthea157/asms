@@ -9,7 +9,7 @@ import {
   Trash2, Pencil, TrendingUp, FileText, LogIn, Paperclip, Image as ImageIcon,
   Download, Printer, Eye, EyeOff, Lock, MessageSquare, Scale, Filter, BookOpen,
   Upload, Settings, Database, GraduationCap, Megaphone, FolderOpen, ShieldCheck,
-  ListChecks, ClipboardCheck, LayoutDashboard, Menu
+  ListChecks, ClipboardCheck, LayoutDashboard, Menu, Briefcase
 } from "lucide-react";
 
 /* ---------------------------------------------------------------
@@ -62,6 +62,7 @@ const MODULE_COLORS = {
   advisory: T.purple, assessment: T.cyan, meetings: T.rose, committee: T.blue,
   caprecs: T.amber, training: T.green, grievance: T.red, documents: T.brown,
   users: T.slate, reports: T.cyan, sysadmin: T.slate, risk: T.red,
+  advisorymgmt: T.purple,
 };
 
 const uid = (p = "id") => `${p}_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
@@ -682,18 +683,25 @@ export default function App() {
   // right after login, since tab always starts on "dashboard".
   const assignedDashboard = role.dashboardId ? data.customDashboards.find((d) => d.id === role.dashboardId) : null;
 
+  // Advisory Cycles, Advisory Visits, Meeting Logs, Bipartite Committee, and
+  // Improvement Plan are grouped under one "Advisory Management" nav entry
+  // (AdvisoryManagementView) instead of five flat entries. Each still has its
+  // own permission key, so the group is shown if the role can view ANY of
+  // them, and lands on the first one it actually has access to — clicking
+  // into a specific one from elsewhere (dashboard shortcuts, custom dashboard
+  // widgets) still works unchanged since `tab` keeps using these same keys.
+  const ADVISORY_MGMT_KEYS = ["advisory", "visits", "meetings", "committee", "caps"];
+  const canViewAdvisoryMgmt = ADVISORY_MGMT_KEYS.some((k) => hasPerm(ctx, k, "view"));
+  const advisoryMgmtLandingKey = ADVISORY_MGMT_KEYS.find((k) => hasPerm(ctx, k, "view")) || "advisory";
+
   const NAV = [
     { key: "dashboard", label: assignedDashboard ? assignedDashboard.name : "Overview", icon: TrendingUp, perm: "dashboard", color: MODULE_COLORS.dashboard },
     { key: "companies", label: "Companies", icon: Building2, perm: "companies", color: MODULE_COLORS.companies },
-    { key: "visits", label: "Advisory Visits", icon: CalendarClock, perm: "visits", color: MODULE_COLORS.visits },
-    { key: "caps", label: "Improvement Plan", icon: ShieldAlert, perm: "caps", color: MODULE_COLORS.caps },
+    ...(canViewAdvisoryMgmt ? [{ key: advisoryMgmtLandingKey, matchKeys: ADVISORY_MGMT_KEYS, label: "Advisory Management", icon: Briefcase, color: MODULE_COLORS.advisorymgmt }] : []),
   ].filter((n) => !n.perm || hasPerm(ctx, n.perm, "view"));
   const MORE_NAV = [
-    { key: "advisory", label: "Advisory Cycles", icon: ClipboardList, perm: "advisory", color: MODULE_COLORS.advisory },
     { key: "assessment", label: "Audit Management", icon: ClipboardCheck, perm: "assessment", color: MODULE_COLORS.assessment },
     { key: "risk", label: "Risk Assessment", icon: AlertTriangle, perm: "risk", color: MODULE_COLORS.risk },
-    { key: "meetings", label: "Meeting Logs", icon: MessageSquare, perm: "meetings", color: MODULE_COLORS.meetings },
-    { key: "committee", label: "Bipartite Committee", icon: Scale, perm: "committee", color: MODULE_COLORS.committee },
     { key: "caprecs", label: "CAP Recommendations", icon: BookOpen, perm: "caprecs", color: MODULE_COLORS.caprecs },
     { key: "training", label: "Training", icon: GraduationCap, perm: "training", color: MODULE_COLORS.training },
     { key: "grievance", label: "Grievance Mechanism", icon: Megaphone, perm: "grievance", color: MODULE_COLORS.grievance },
@@ -725,13 +733,13 @@ export default function App() {
       : <Dashboard ctx={ctx} goto={goto} />;
   }
   else if (tab === "companies" && hasPerm(ctx, "companies", "view")) Body = <CompaniesView ctx={ctx} />;
-  else if (tab === "visits" && hasPerm(ctx, "visits", "view")) Body = <VisitsView ctx={ctx} />;
-  else if (tab === "caps" && hasPerm(ctx, "caps", "view")) Body = <CapsView ctx={ctx} />;
-  else if (tab === "advisory" && hasPerm(ctx, "advisory", "view")) Body = <AdvisoryView ctx={ctx} />;
+  else if (tab === "visits" && hasPerm(ctx, "visits", "view")) Body = <AdvisoryManagementView ctx={ctx} tab={tab} setTab={setTab} />;
+  else if (tab === "caps" && hasPerm(ctx, "caps", "view")) Body = <AdvisoryManagementView ctx={ctx} tab={tab} setTab={setTab} />;
+  else if (tab === "advisory" && hasPerm(ctx, "advisory", "view")) Body = <AdvisoryManagementView ctx={ctx} tab={tab} setTab={setTab} />;
   else if (tab === "assessment" && hasPerm(ctx, "assessment", "view")) Body = <AuditManagementView ctx={ctx} />;
   else if (tab === "risk" && hasPerm(ctx, "risk", "view")) Body = <RiskAssessmentView ctx={ctx} />;
-  else if (tab === "meetings" && hasPerm(ctx, "meetings", "view")) Body = <MeetingLogsView ctx={ctx} />;
-  else if (tab === "committee" && hasPerm(ctx, "committee", "view")) Body = <BipartiteCommitteeView ctx={ctx} />;
+  else if (tab === "meetings" && hasPerm(ctx, "meetings", "view")) Body = <AdvisoryManagementView ctx={ctx} tab={tab} setTab={setTab} />;
+  else if (tab === "committee" && hasPerm(ctx, "committee", "view")) Body = <AdvisoryManagementView ctx={ctx} tab={tab} setTab={setTab} />;
   else if (tab === "caprecs" && hasPerm(ctx, "caprecs", "view")) Body = <CapRecommendationsView ctx={ctx} />;
   else if (tab === "training" && hasPerm(ctx, "training", "view")) Body = <TrainingView ctx={ctx} />;
   else if (tab === "grievance" && hasPerm(ctx, "grievance", "view")) Body = <GrievanceView ctx={ctx} />;
@@ -831,19 +839,22 @@ function MobileMenu({ items, activeKey, open, onClose, onSelect }) {
           </button>
         </div>
         <div style={{ flex: 1, overflowY: "auto", padding: "6px 10px 14px" }}>
-          {items.map((n) => (
-            <button key={n.key} onClick={() => onSelect(n.key)} style={{
-              width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "10px 10px", marginBottom: 2,
-              borderRadius: 10, border: "none", cursor: "pointer", textAlign: "left", fontFamily: "inherit", fontSize: 14, fontWeight: 700,
-              background: activeKey === n.key ? "rgba(255,255,255,0.12)" : "transparent",
-              color: activeKey === n.key ? "#fff" : "#9DB3AB",
-            }}>
-              <IconChip icon={n.icon} color={n.color || "#9DB3AB"} size={30} iconSize={17}
-                strokeWidth={activeKey === n.key ? 2.3 : 1.9} background="transparent"
-                style={{ opacity: activeKey === n.key ? 1 : 0.6 }} />
-              {n.label}
-            </button>
-          ))}
+          {items.map((n) => {
+            const active = n.matchKeys ? n.matchKeys.includes(activeKey) : activeKey === n.key;
+            return (
+              <button key={n.key} onClick={() => onSelect(n.key)} style={{
+                width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "10px 10px", marginBottom: 2,
+                borderRadius: 10, border: "none", cursor: "pointer", textAlign: "left", fontFamily: "inherit", fontSize: 14, fontWeight: 700,
+                background: active ? "rgba(255,255,255,0.12)" : "transparent",
+                color: active ? "#fff" : "#9DB3AB",
+              }}>
+                <IconChip icon={n.icon} color={n.color || "#9DB3AB"} size={30} iconSize={17}
+                  strokeWidth={active ? 2.3 : 1.9} background="transparent"
+                  style={{ opacity: active ? 1 : 0.6 }} />
+                {n.label}
+              </button>
+            );
+          })}
         </div>
       </div>
     </div>
@@ -996,19 +1007,22 @@ function SideNav({ items, activeKey, onSelect }) {
         <span style={{ color: "#fff", fontFamily: "'Space Grotesk', sans-serif", fontSize: 14.5, lineHeight: 1.25 }}>Advisory Management System</span>
       </div>
       <div style={{ flex: 1, overflowY: "auto", padding: "6px 10px 14px" }}>
-        {items.map((n) => (
-          <button key={n.key} onClick={() => onSelect(n.key)} style={{
-            width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", marginBottom: 2,
-            borderRadius: 10, border: "none", cursor: "pointer", textAlign: "left", fontFamily: "inherit", fontSize: 14, fontWeight: 700,
-            background: activeKey === n.key ? "rgba(255,255,255,0.12)" : "transparent",
-            color: activeKey === n.key ? "#fff" : "#9DB3AB",
-          }}>
-            <IconChip icon={n.icon} color={n.color || "#9DB3AB"} size={30} iconSize={17}
-              strokeWidth={activeKey === n.key ? 2.3 : 1.9} background="transparent"
-              style={{ opacity: activeKey === n.key ? 1 : 0.6 }} />
-            {n.label}
-          </button>
-        ))}
+        {items.map((n) => {
+          const active = n.matchKeys ? n.matchKeys.includes(activeKey) : activeKey === n.key;
+          return (
+            <button key={n.key} onClick={() => onSelect(n.key)} style={{
+              width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", marginBottom: 2,
+              borderRadius: 10, border: "none", cursor: "pointer", textAlign: "left", fontFamily: "inherit", fontSize: 14, fontWeight: 700,
+              background: active ? "rgba(255,255,255,0.12)" : "transparent",
+              color: active ? "#fff" : "#9DB3AB",
+            }}>
+              <IconChip icon={n.icon} color={n.color || "#9DB3AB"} size={30} iconSize={17}
+                strokeWidth={active ? 2.3 : 1.9} background="transparent"
+                style={{ opacity: active ? 1 : 0.6 }} />
+              {n.label}
+            </button>
+          );
+        })}
       </div>
     </div>
   );
@@ -1720,6 +1734,47 @@ function CompanyDetail({ id, ctx, onBack }) {
       {form && <CompanyForm initial={form} onClose={() => setForm(null)}
         onSave={(v) => { ctx.update("companies", (prev) => prev.map((p) => (p.id === v.id ? v : p))); setForm(null); }}
         onDelete={hasPerm(ctx, "companies", "delete") ? () => { if (deleteCompanyCascade(ctx, id)) { setForm(null); onBack(); } } : null} />}
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------
+   ADVISORY MANAGEMENT (groups Advisory Cycles, Advisory Visits, Meeting
+   Logs, Bipartite Committee, and Improvement Plan under one nav entry)
+----------------------------------------------------------------*/
+const ADVISORY_MGMT_TABS = [
+  { k: "advisory", l: "Advisory Cycles", perm: "advisory" },
+  { k: "visits", l: "Advisory Visits", perm: "visits" },
+  { k: "meetings", l: "Meeting Logs", perm: "meetings" },
+  { k: "committee", l: "Bipartite Committee", perm: "committee" },
+  { k: "caps", l: "Improvement Plan", perm: "caps" },
+];
+
+// Unlike AuditManagementView/DocumentationView's local tab state, this uses
+// the outer App-level tab/setTab directly — each sub-tab is still a real,
+// independently-linkable destination (Dashboard stat cards, custom
+// dashboard widgets navigate straight to "caps"/"advisory"/"visits" via
+// goto()), so the active sub-view has to stay driven by the same `tab`
+// state those shortcuts already set.
+function AdvisoryManagementView({ ctx, tab, setTab }) {
+  const visibleTabs = ADVISORY_MGMT_TABS.filter((t) => hasPerm(ctx, t.perm, "view"));
+  return (
+    <div>
+      <Header title="Advisory Management" subtitle="Cycles, visits, meetings, committee & improvement plans" icon={Briefcase} color={MODULE_COLORS.advisorymgmt} />
+      <div style={{ display: "flex", gap: 6, padding: "10px 18px", flexWrap: "wrap" }}>
+        {visibleTabs.map((t) => (
+          <button key={t.k} onClick={() => setTab(t.k)} style={{
+            flex: "1 1 120px", padding: "10px 6px", borderRadius: 10, border: `1px solid ${tab === t.k ? T.accent : T.border}`,
+            background: tab === t.k ? T.accent : T.surface, color: tab === t.k ? "#fff" : T.ink2,
+            fontSize: 12.5, fontWeight: 700, cursor: "pointer", fontFamily: "inherit",
+          }}>{t.l}</button>
+        ))}
+      </div>
+      {tab === "advisory" && <AdvisoryView ctx={ctx} />}
+      {tab === "visits" && <VisitsView ctx={ctx} />}
+      {tab === "meetings" && <MeetingLogsView ctx={ctx} />}
+      {tab === "committee" && <BipartiteCommitteeView ctx={ctx} />}
+      {tab === "caps" && <CapsView ctx={ctx} />}
     </div>
   );
 }
