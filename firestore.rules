@@ -1,20 +1,35 @@
 // Reference security rules for the Advisory Desk app.
 //
-// Firebase Auth here is anonymous sign-in only (see src/firebase.js) — it
-// exists so `request.auth != null` means "opened this app", not "is an
-// admin". The app's own role system (Admin/Manager/Officer/Company User)
-// lives entirely in application code and Firestore data, not in these
-// rules. In practice that means: any signed-in (anonymous) visitor can
-// read and write every document in the shared collection. That's an
-// acceptable tradeoff for an internal tool behind a shared URL, but it is
-// NOT a substitute for real per-role authorization if this app is ever
-// exposed to the public internet with sensitive data.
+// The login screen (RoleGate in App.jsx) needs to read the `users` document
+// BEFORE anyone signs in — to look up an account by email — so App.jsx
+// signs every visitor into an anonymous Firebase Auth session on load (see
+// src/firebase.js's authReady) purely so `request.auth != null` can be true
+// that early. Real accounts (Admin/Manager/Officer/Company User) then sign
+// in with real email/password, replacing that anonymous session.
+//
+// Anonymous sessions are read-only here. Previously `write` was also
+// allowed for `request.auth != null` (which anonymous sessions satisfy),
+// meaning any visitor who merely opened the app — no credentials entered —
+// could write or delete anything in the shared document tree. Reads still
+// have to stay open to anonymous sessions for the pre-login lookup above,
+// and the app's own role system (who can edit vs. just view a given
+// module) still lives entirely in application code, not in these rules —
+// any REAL signed-in account, regardless of role, can still write
+// everything. That's an acceptable tradeoff for an internal tool behind a
+// shared URL, but it is NOT a substitute for real per-role authorization if
+// this app is ever exposed to the public internet with sensitive data.
+//
+// This file must be manually published via Firebase Console → Firestore
+// Database → Rules (or `firebase deploy --only firestore:rules` with the
+// CLI) — editing it here does not change what's actually enforced live.
 rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
     match /advisoryDeskShared/{document=**} {
-      allow read, write: if request.auth != null;
+      allow read: if request.auth != null;
+      allow write: if request.auth != null
+        && request.auth.token.firebase.sign_in_provider != 'anonymous';
     }
   }
 }

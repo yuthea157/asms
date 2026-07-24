@@ -27,6 +27,8 @@ import {
   createUserWithEmailAndPassword,
   sendPasswordResetEmail,
   updatePassword,
+  reauthenticateWithCredential,
+  EmailAuthProvider,
   signOut,
 } from "firebase/auth";
 
@@ -125,4 +127,17 @@ export async function logout() {
  */
 export function changeOwnPassword(newPassword) {
   return updatePassword(auth.currentUser, newPassword);
+}
+
+/**
+ * Self-service "change my password" for an already logged-in user: proves
+ * they know their CURRENT password by re-authenticating with it (this is
+ * the verification step — a wrong old password fails right here with
+ * auth/wrong-password, before anything changes), then sets the new one.
+ * Re-authenticating also sidesteps auth/requires-recent-login, which
+ * updatePassword alone can hit on an older session.
+ */
+export async function changePasswordWithVerification(email, oldPassword, newPassword) {
+  await reauthenticateWithCredential(auth.currentUser, EmailAuthProvider.credential(email, oldPassword));
+  await updatePassword(auth.currentUser, newPassword);
 }

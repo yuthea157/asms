@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import * as XLSX from "xlsx";
 import logo from "./assets/logo.jpg";
-import { signInEmail, createEmailAccount, sendReset, createAuthUserAsAdmin, changeOwnPassword, logout as firebaseLogout } from "./firebase.js";
+import { signInEmail, createEmailAccount, sendReset, createAuthUserAsAdmin, changeOwnPassword, changePasswordWithVerification, logout as firebaseLogout } from "./firebase.js";
 import {
   Building2, CalendarClock, ClipboardList, ShieldAlert, Users as UsersIcon,
   FileBarChart, Plus, X, ChevronRight, Search, Clock, AlertTriangle,
@@ -757,7 +757,7 @@ export default function App() {
             onSelect={(k) => { setTab(k); setDetail(null); }}
           />
           <div style={{ flex: 1, overflowY: "auto", minWidth: 0 }}>
-            <AccountCorner roleLabel={roleLabel} userName={role.name} onSignOut={handleSignOut} />
+            <AccountCorner roleLabel={roleLabel} userName={role.name} email={role.email} onSignOut={handleSignOut} />
             <div style={{ maxWidth: 820, margin: "0 auto", padding: "0 0 40px" }}>{Body}</div>
           </div>
         </div>
@@ -767,7 +767,7 @@ export default function App() {
 
   return (
     <Shell>
-      <TopBar roleLabel={roleLabel} userName={role.name} onSignOut={handleSignOut} onOpenMenu={() => setMobileMenuOpen(true)} />
+      <TopBar roleLabel={roleLabel} userName={role.name} email={role.email} onSignOut={handleSignOut} onOpenMenu={() => setMobileMenuOpen(true)} />
       <div style={{ flex: 1, overflowY: "auto", minWidth: 0 }}>{Body}</div>
       <MobileMenu
         items={[...NAV, ...MORE_NAV]}
@@ -784,7 +784,7 @@ export default function App() {
 // layout uses AccountCorner (below) for the account/sign-out control instead,
 // since SideNav's own header is branding-only there. The hamburger button on
 // the left opens MobileMenu, mobile's equivalent of the desktop SideNav.
-function TopBar({ roleLabel, userName, onSignOut, onOpenMenu }) {
+function TopBar({ roleLabel, userName, email, onSignOut, onOpenMenu }) {
   return (
     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 18px", borderBottom: `1px solid ${T.border}`, background: T.ink }}>
       <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
@@ -802,9 +802,7 @@ function TopBar({ roleLabel, userName, onSignOut, onOpenMenu }) {
           whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
         }}>Advisory Management System</span>
       </div>
-      <button onClick={onSignOut} style={{ background: "rgba(255,255,255,0.1)", border: "none", color: "#fff", fontSize: 11.5, fontWeight: 700, padding: "6px 10px", borderRadius: 999, cursor: "pointer", flexShrink: 0 }}>
-        {roleLabel?.split(" ")[0] || ""} · {userName.split(" ")[0]}
-      </button>
+      <AccountMenu roleLabel={roleLabel} userName={userName} email={email} onSignOut={onSignOut} variant="mobile" />
     </div>
   );
 }
@@ -852,20 +850,133 @@ function MobileMenu({ items, activeKey, open, onClose, onSelect }) {
   );
 }
 
-// Account/sign-out control for the desktop layout — pinned to the top-right
-// corner of the scrollable content pane (SideNav's own header is branding-only).
-function AccountCorner({ roleLabel, userName, onSignOut }) {
+// Account control for the desktop layout — pinned to the top-right corner
+// of the scrollable content pane (SideNav's own header is branding-only).
+function AccountCorner({ roleLabel, userName, email, onSignOut }) {
   return (
     <div style={{ position: "sticky", top: 0, zIndex: 20, display: "flex", justifyContent: "flex-end", padding: "16px 24px 0" }}>
-      <button onClick={onSignOut} style={{
+      <AccountMenu roleLabel={roleLabel} userName={userName} email={email} onSignOut={onSignOut} variant="desktop" />
+    </div>
+  );
+}
+
+// Account button + dropdown (Change password / Sign out), shared by the
+// desktop (AccountCorner) and mobile (TopBar) top-right account controls —
+// same menu, just a differently-styled trigger button per variant.
+function AccountMenu({ roleLabel, userName, email, onSignOut, variant }) {
+  const [open, setOpen] = useState(false);
+  const [changingPw, setChangingPw] = useState(false);
+
+  const triggerStyle = variant === "desktop"
+    ? {
         background: T.surface, border: `1px solid ${T.border}`, color: T.ink2,
         fontSize: 12, fontWeight: 700, padding: "8px 14px", borderRadius: 999, cursor: "pointer",
         fontFamily: "inherit", textAlign: "right", boxShadow: "0 2px 8px rgba(22,50,58,0.08)",
-      }}>
+      }
+    : {
+        background: "rgba(255,255,255,0.1)", border: "none", color: "#fff", fontSize: 11.5,
+        fontWeight: 700, padding: "6px 10px", borderRadius: 999, cursor: "pointer", flexShrink: 0,
+        fontFamily: "inherit",
+      };
+
+  return (
+    <div style={{ position: "relative" }}>
+      <button onClick={() => setOpen((v) => !v)} style={triggerStyle}>
         {roleLabel?.split(" ")[0] || ""} · {userName.split(" ")[0]}
-        <div style={{ fontSize: 10, fontWeight: 600, color: T.muted, marginTop: 1 }}>Tap to sign out</div>
+        {variant === "desktop" && <div style={{ fontSize: 10, fontWeight: 600, color: T.muted, marginTop: 1 }}>Tap for account options</div>}
       </button>
+
+      {open && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 55 }} onClick={() => setOpen(false)}>
+          <div onClick={(e) => e.stopPropagation()} style={{
+            position: "absolute", top: variant === "desktop" ? 58 : 48, right: variant === "desktop" ? 24 : 14,
+            background: T.surface, borderRadius: 12, boxShadow: "0 10px 30px rgba(0,0,0,0.2)",
+            overflow: "hidden", width: 200, border: `1px solid ${T.border}`,
+          }}>
+            <button onClick={() => { setOpen(false); setChangingPw(true); }} style={{
+              width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "11px 14px",
+              background: "transparent", border: "none", borderBottom: `1px solid ${T.border}`,
+              fontSize: 13.5, color: T.ink, cursor: "pointer", textAlign: "left", fontFamily: "inherit", fontWeight: 600,
+            }}>
+              <Lock size={15} color={T.muted} /> Change password
+            </button>
+            <button onClick={() => { setOpen(false); onSignOut(); }} style={{
+              width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "11px 14px",
+              background: "transparent", border: "none",
+              fontSize: 13.5, color: T.red, cursor: "pointer", textAlign: "left", fontFamily: "inherit", fontWeight: 600,
+            }}>
+              <LogIn size={15} style={{ transform: "scaleX(-1)" }} /> Sign out
+            </button>
+          </div>
+        </div>
+      )}
+
+      {changingPw && <ChangePasswordSheet email={email} onClose={() => setChangingPw(false)} />}
     </div>
+  );
+}
+
+// Self-service password change — requires the current password (verified
+// via a real Firebase reauthentication, not just a client-side string
+// compare) before a new one is set. See firebase.js's
+// changePasswordWithVerification for why reauthentication is the right way
+// to do the "verify old password" step here.
+function ChangePasswordSheet({ email, onClose }) {
+  const [oldPw, setOldPw] = useState("");
+  const [newPw, setNewPw] = useState("");
+  const [confirmPw, setConfirmPw] = useState("");
+  const [showPw, setShowPw] = useState(false);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  const submit = async () => {
+    if (!oldPw) { setError("Enter your current password."); return; }
+    if (newPw.length < 6) { setError("New password must be at least 6 characters."); return; }
+    if (newPw !== confirmPw) { setError("New passwords don't match."); return; }
+    setError("");
+    setBusy(true);
+    try {
+      await changePasswordWithVerification(email, oldPw, newPw);
+      setSuccess(true);
+    } catch (err) {
+      const code = err?.code || "";
+      setError(code === "auth/wrong-password" || code === "auth/invalid-credential" ? "Your current password is incorrect." : authErrorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Sheet title="Change password" onClose={onClose}>
+      {success ? (
+        <div>
+          <div style={{ color: T.green, fontSize: 13, fontWeight: 600, marginBottom: 14 }}>Your password has been changed.</div>
+          <Btn full onClick={onClose}>Done</Btn>
+        </div>
+      ) : (
+        <>
+          <Field label="Current password">
+            <TextInput type={showPw ? "text" : "password"} value={oldPw} onChange={(e) => setOldPw(e.target.value)} placeholder="Enter your current password" onKeyDown={(e) => e.key === "Enter" && submit()} />
+          </Field>
+          <Field label="New password">
+            <TextInput type={showPw ? "text" : "password"} value={newPw} onChange={(e) => setNewPw(e.target.value)} placeholder="At least 6 characters" onKeyDown={(e) => e.key === "Enter" && submit()} />
+          </Field>
+          <Field label="Confirm new password">
+            <TextInput type={showPw ? "text" : "password"} value={confirmPw} onChange={(e) => setConfirmPw(e.target.value)} placeholder="Type it again" onKeyDown={(e) => e.key === "Enter" && submit()} />
+          </Field>
+          <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: T.muted, marginBottom: 14, cursor: "pointer" }}>
+            <input type="checkbox" checked={showPw} onChange={(e) => setShowPw(e.target.checked)} /> Show passwords
+          </label>
+          {error && <div style={{ color: T.red, fontSize: 12.5, marginBottom: 12, fontWeight: 600 }}>{error}</div>}
+          <div style={{ display: "flex", gap: 10 }}>
+            <div style={{ flex: 1 }} />
+            <Btn variant="ghost" onClick={onClose} disabled={busy}>Cancel</Btn>
+            <Btn onClick={submit} disabled={busy}>{busy ? "Saving…" : "Change password"}</Btn>
+          </div>
+        </>
+      )}
+    </Sheet>
   );
 }
 

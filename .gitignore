@@ -4,3 +4,6 @@ dist
 *.local
 .env
 .env.local
+.claude/
+dev-out.log
+dev-err.log
