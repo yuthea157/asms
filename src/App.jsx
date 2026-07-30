@@ -60,7 +60,7 @@ const T = {
 const MODULE_COLORS = {
   dashboard: T.accent, companies: T.blue, visits: T.green, caps: T.amber,
   advisory: T.purple, assessment: T.cyan, meetings: T.rose, committee: T.blue,
-  caprecs: T.amber, training: T.green, grievance: T.red, documents: T.brown,
+  training: T.green, grievance: T.red, documents: T.brown,
   users: T.slate, reports: T.cyan, sysadmin: T.slate, risk: T.red,
   advisorymgmt: T.purple,
 };
@@ -211,10 +211,6 @@ function seedData() {
       { id: uid("bc"), companyId, name: "Sokha Chan", sex: "Female", dateJoined: "2025-01-15", committeeRole: "Chairperson", companyRole: "HR Manager", union: "N", phone: "012 345 678" },
       { id: uid("bc"), companyId, name: "Ratanak Sok", sex: "Male", dateJoined: "2025-01-15", committeeRole: "Member", companyRole: "Sewing Line Worker", union: "Y", phone: "011 222 333" },
     ],
-    capRecommendations: [
-      { id: uid("cr"), ncNo: "NC-STD-01", area: "Fire Safety", cluster: "OSH", rootCause: "Emergency exits obstructed or locked during working hours.", proposedCA: "Clear all exit routes, install illuminated exit signage, and conduct quarterly fire drills." },
-      { id: uid("cr"), ncNo: "NC-STD-02", area: "Overtime Consent", cluster: "Working Time", rootCause: "Workers not given voluntary, documented consent before overtime.", proposedCA: "Introduce a written overtime consent form and log signed copies for each shift." },
-    ],
     trainings: [
       {
         id: uid("tr"), companyId, topic: "Fire Safety & Emergency Response", trainer: "Vichet Ros",
@@ -261,12 +257,6 @@ function seedData() {
         recommendation: "Automate minimum-wage checks in payroll software and assign a named owner for gazette updates.",
       },
     ],
-    auditRecords: [
-      {
-        id: uid("ar"), companyId, auditDate: "2026-02-20", auditType: "Social Compliance",
-        ncs: [{ id: uid("nc"), description: "Emergency exit in Building B partially blocked by stored materials.", severity: "Major", status: "Open" }],
-      },
-    ],
     auditTool: [
       {
         id: uid("at"), companyId, auditDate: "2026-02-20", auditType: "Social Compliance", status: "In Progress",
@@ -289,7 +279,7 @@ function seedData() {
         hazard: "Blocked emergency exit", description: "Emergency exit partially blocked by stored fabric rolls, delaying evacuation in a fire.",
         likelihood: 3, severity: 4, existingControls: "Monthly fire drill; exit signage installed.",
         recommendedActions: "Relocate stored materials away from all exit routes; assign a daily housekeeping check.",
-        assignedTo: "Vichet Ros", targetDate: "2026-03-15", actualCompletionDate: "", status: "Open", linkedCapId: capId,
+        assignedTo: "Vichet Ros", targetDate: "2026-03-15", actualCompletionDate: "", status: "Open",
       },
     ],
     customDashboards: [
@@ -322,8 +312,7 @@ const PERMISSION_MODULES = [
   { key: "caps", label: "Improvement Plan (CAP)" },
   { key: "meetings", label: "Meeting Logs" },
   { key: "committee", label: "Bipartite Committee" },
-  { key: "caprecs", label: "CAP Recommendations" },
-  { key: "training", label: "Training" },
+  { key: "training", label: "Training Management" },
   { key: "grievance", label: "Grievance Mechanism" },
   { key: "documents", label: "Documentation" },
   { key: "reports", label: "Reports" },
@@ -339,17 +328,17 @@ function defaultPermissions() {
   return {
     manager: {
       dashboard: viewOnly, companies: full, advisory: full, visits: full, assessment: full, risk: full, caps: full,
-      meetings: editOnly, committee: editOnly, caprecs: editOnly, reports: viewOnly, sysadmin: none,
+      meetings: editOnly, committee: editOnly, reports: viewOnly, sysadmin: none,
       training: editOnly, grievance: editOnly, documents: editOnly,
     },
     officer: {
       dashboard: viewOnly, companies: viewOnly, advisory: viewOnly, visits: editOnly, assessment: viewOnly, risk: editOnly, caps: editOnly,
-      meetings: editOnly, committee: viewOnly, caprecs: viewOnly, reports: viewOnly, sysadmin: none,
+      meetings: editOnly, committee: viewOnly, reports: viewOnly, sysadmin: none,
       training: editOnly, grievance: editOnly, documents: editOnly,
     },
     user: {
       dashboard: viewOnly, companies: viewOnly, advisory: viewOnly, visits: viewOnly, assessment: viewOnly, risk: viewOnly, caps: viewOnly,
-      meetings: viewOnly, committee: viewOnly, caprecs: none, reports: viewOnly, sysadmin: none,
+      meetings: viewOnly, committee: viewOnly, reports: viewOnly, sysadmin: none,
       training: viewOnly, grievance: viewOnly, documents: viewOnly,
     },
   };
@@ -377,7 +366,7 @@ function inScope(ctx, companyId) {
 /* ---------------------------------------------------------------
    STORAGE HOOK
 ----------------------------------------------------------------*/
-const KEYS = ["companies", "advisoryInfo", "visits", "assessmentPlans", "users", "caps", "meetingLogs", "bipartiteCommittee", "capRecommendations", "permissions", "systemSettings", "trainings", "grievances", "policies", "licenses", "auditChecklists", "auditGuidance", "auditTool", "auditRecords", "selfAssessments", "riskAssessments", "customDashboards"];
+const KEYS = ["companies", "advisoryInfo", "visits", "assessmentPlans", "users", "caps", "meetingLogs", "bipartiteCommittee", "permissions", "systemSettings", "trainings", "grievances", "policies", "licenses", "auditChecklists", "auditGuidance", "auditTool", "selfAssessments", "riskAssessments", "customDashboards"];
 
 const CAP_CLUSTERS = [
   "Child Labor", "Forced Labor", "Discrimination and Harassment", "FoA & CBA",
@@ -400,8 +389,6 @@ const LICENSE_RENEWAL_WINDOW_DAYS = 30;
 
 const AUDIT_TYPES = ["Internal", "Social Compliance", "Quality", "Safety (OSH)", "Environmental", "Customer/Brand", "Other"];
 const AUDIT_PLAN_STATUSES = ["Planned", "Scheduled", "In Progress", "Completed", "Cancelled"];
-const AUDIT_NC_SEVERITIES = ["Minor", "Major", "Critical"];
-const AUDIT_NC_STATUSES = ["Open", "Closed"];
 const SELF_ASSESSMENT_STATUSES = ["Draft", "Submitted", "Reviewed"];
 const SELF_ASSESSMENT_ANSWERS = ["Compliant", "Non-Compliant", "N/A"];
 
@@ -673,6 +660,12 @@ export default function App() {
   const [tab, setTab] = useState("dashboard");
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [detail, setDetail] = useState(null); // {type:'company'|'advisory'|'assessment', id}
+  // Lifted out of AuditManagementView (rather than local state there) so
+  // that deleting an Audit Plan record — which routes back here via
+  // setDetail(null) and remounts AuditManagementView — lands back on
+  // whichever Audit Management sub-tab (e.g. "plan") the user was already
+  // on, instead of resetting to the default "checklist" tab.
+  const [assessmentTab, setAssessmentTab] = useState("checklist");
   const viewportWidth = useViewportWidth();
   const isDesktop = viewportWidth >= DESKTOP_BP;
 
@@ -748,8 +741,7 @@ export default function App() {
   const MORE_NAV = [
     { key: "assessment", label: "Audit Management", icon: ClipboardCheck, perm: "assessment", color: MODULE_COLORS.assessment },
     { key: "risk", label: "Risk Assessment", icon: AlertTriangle, perm: "risk", color: MODULE_COLORS.risk },
-    { key: "caprecs", label: "CAP Recommendations", icon: BookOpen, perm: "caprecs", color: MODULE_COLORS.caprecs },
-    { key: "training", label: "Training", icon: GraduationCap, perm: "training", color: MODULE_COLORS.training },
+    { key: "training", label: "Training Management", icon: GraduationCap, perm: "training", color: MODULE_COLORS.training },
     { key: "grievance", label: "Grievance Mechanism", icon: Megaphone, perm: "grievance", color: MODULE_COLORS.grievance },
     { key: "documents", label: "Documentation", icon: FolderOpen, perm: "documents", color: MODULE_COLORS.documents },
     { key: "users", label: "User Accounts", icon: UsersIcon, adminOnly: true, color: MODULE_COLORS.users },
@@ -770,7 +762,6 @@ export default function App() {
   } else if (detail?.type === "company") Body = <CompanyDetail id={detail.id} ctx={ctx} onBack={() => setDetail(null)} />;
   else if (detail?.type === "advisory") Body = <AdvisoryDetail id={detail.id} ctx={ctx} onBack={() => setDetail(null)} />;
   else if (detail?.type === "assessment") Body = <AuditPlanDetail id={detail.id} ctx={ctx} onBack={() => setDetail(null)} />;
-  else if (detail?.type === "auditRecord") Body = <AuditRecordDetail id={detail.id} ctx={ctx} onBack={() => setDetail(null)} />;
   else if (detail?.type === "selfAssessment") Body = <SelfAssessmentDetail id={detail.id} ctx={ctx} onBack={() => setDetail(null)} />;
   else if (detail?.type === "auditTool") Body = <AuditToolDetail id={detail.id} ctx={ctx} onBack={() => setDetail(null)} />;
   else if (tab === "dashboard" && hasPerm(ctx, "dashboard", "view")) {
@@ -783,11 +774,10 @@ export default function App() {
   else if (tab === "visits" && hasPerm(ctx, "visits", "view")) Body = <AdvisoryManagementView ctx={ctx} tab={tab} setTab={setTab} />;
   else if (tab === "caps" && hasPerm(ctx, "caps", "view")) Body = <AdvisoryManagementView ctx={ctx} tab={tab} setTab={setTab} />;
   else if (tab === "advisory" && hasPerm(ctx, "advisory", "view")) Body = <AdvisoryManagementView ctx={ctx} tab={tab} setTab={setTab} />;
-  else if (tab === "assessment" && hasPerm(ctx, "assessment", "view")) Body = <AuditManagementView ctx={ctx} />;
+  else if (tab === "assessment" && hasPerm(ctx, "assessment", "view")) Body = <AuditManagementView ctx={ctx} tab={assessmentTab} setTab={setAssessmentTab} />;
   else if (tab === "risk" && hasPerm(ctx, "risk", "view")) Body = <RiskAssessmentView ctx={ctx} />;
   else if (tab === "meetings" && hasPerm(ctx, "meetings", "view")) Body = <AdvisoryManagementView ctx={ctx} tab={tab} setTab={setTab} />;
   else if (tab === "committee" && hasPerm(ctx, "committee", "view")) Body = <AdvisoryManagementView ctx={ctx} tab={tab} setTab={setTab} />;
-  else if (tab === "caprecs" && hasPerm(ctx, "caprecs", "view")) Body = <CapRecommendationsView ctx={ctx} />;
   else if (tab === "training" && hasPerm(ctx, "training", "view")) Body = <TrainingView ctx={ctx} />;
   else if (tab === "grievance" && hasPerm(ctx, "grievance", "view")) Body = <GrievanceView ctx={ctx} />;
   else if (tab === "documents" && hasPerm(ctx, "documents", "view")) Body = <DocumentationView ctx={ctx} />;
@@ -1619,7 +1609,6 @@ function deleteCompanyCascade(ctx, id) {
     grievances: data.grievances.filter((g) => g.companyId === id).length,
     policies: data.policies.filter((p) => p.companyId === id).length,
     licenses: data.licenses.filter((l) => l.companyId === id).length,
-    auditRecords: data.auditRecords.filter((r) => r.companyId === id).length,
     selfAssessments: data.selfAssessments.filter((s) => s.companyId === id).length,
     riskAssessments: data.riskAssessments.filter((r) => r.companyId === id).length,
   };
@@ -1637,7 +1626,6 @@ function deleteCompanyCascade(ctx, id) {
       counts.grievances && `${counts.grievances} grievance record(s)`,
       counts.policies && `${counts.policies} policy/procedure document(s)`,
       counts.licenses && `${counts.licenses} license/inspection record(s)`,
-      counts.auditRecords && `${counts.auditRecords} recorded audit(s)`,
       counts.selfAssessments && `${counts.selfAssessments} self-assessment(s)`,
       counts.riskAssessments && `${counts.riskAssessments} risk assessment(s)`,
     ].filter(Boolean).join(", ") + ".";
@@ -1654,7 +1642,6 @@ function deleteCompanyCascade(ctx, id) {
   update("grievances", (prev) => prev.filter((g) => g.companyId !== id));
   update("policies", (prev) => prev.filter((p) => p.companyId !== id));
   update("licenses", (prev) => prev.filter((l) => l.companyId !== id));
-  update("auditRecords", (prev) => prev.filter((r) => r.companyId !== id));
   update("selfAssessments", (prev) => prev.filter((s) => s.companyId !== id));
   update("riskAssessments", (prev) => prev.filter((r) => r.companyId !== id));
   update("companies", (prev) => prev.filter((c) => c.id !== id));
@@ -1797,8 +1784,8 @@ const ADVISORY_MGMT_TABS = [
   { k: "caps", l: "Improvement Plan", perm: "caps" },
 ];
 
-// Unlike AuditManagementView/DocumentationView's local tab state, this uses
-// the outer App-level tab/setTab directly — each sub-tab is still a real,
+// Unlike DocumentationView's local tab state, this uses the outer
+// App-level tab/setTab directly — each sub-tab is still a real,
 // independently-linkable destination (Dashboard stat cards, custom
 // dashboard widgets navigate straight to "caps"/"advisory"/"visits" via
 // goto()), so the active sub-view has to stay driven by the same `tab`
@@ -2099,14 +2086,15 @@ function VisitForm({ initial, ctx, onClose }) {
 }
 
 /* ---------------------------------------------------------------
-   AUDIT MANAGEMENT — Audit Checklist, Audit Plan, Audit Management (records)
+   AUDIT MANAGEMENT — Audit Checklist, Audit Guidance, Audit Tool,
+   Audit Plan, Audit Findings, Self-Assessment
 ----------------------------------------------------------------*/
 const AUDIT_TABS = [
   { k: "checklist", l: "Audit Checklist" },
   { k: "guidance", l: "Audit Guidance" },
   { k: "tool", l: "Audit Tool" },
   { k: "plan", l: "Audit Plan" },
-  { k: "records", l: "Audit Management" },
+  { k: "findings", l: "Audit Findings" },
   { k: "selfassessment", l: "Self-Assessment" },
 ];
 
@@ -2163,14 +2151,13 @@ function ResetAuditDataDialog({ ctx, onClose }) {
   );
 }
 
-function AuditManagementView({ ctx }) {
-  const [tab, setTab] = useState("checklist");
+function AuditManagementView({ ctx, tab, setTab }) {
   const [resetDialog, setResetDialog] = useState(false);
   const canReset = hasPerm(ctx, "assessment", "delete");
 
   return (
     <div>
-      <Header title="Audit Management" subtitle="Checklists, audit plans & recorded audits" icon={ClipboardCheck} color={MODULE_COLORS.assessment}
+      <Header title="Audit Management" subtitle="Checklists, audits & findings" icon={ClipboardCheck} color={MODULE_COLORS.assessment}
         action={canReset ? <Btn variant="danger" small onClick={() => setResetDialog(true)}><Trash2 size={13} />Reset audit data</Btn> : null} />
       <div style={{ display: "flex", gap: 6, padding: "10px 18px" }}>
         {AUDIT_TABS.map((t) => (
@@ -2185,7 +2172,7 @@ function AuditManagementView({ ctx }) {
       {tab === "guidance" && <AuditGuidanceView ctx={ctx} />}
       {tab === "tool" && <AuditToolView ctx={ctx} />}
       {tab === "plan" && <AuditPlanView ctx={ctx} />}
-      {tab === "records" && <AuditRecordsView ctx={ctx} />}
+      {tab === "findings" && <AuditFindingsView ctx={ctx} />}
       {tab === "selfassessment" && <SelfAssessmentView ctx={ctx} />}
       {resetDialog && <ResetAuditDataDialog ctx={ctx} onClose={() => setResetDialog(false)} />}
     </div>
@@ -2669,6 +2656,11 @@ function AuditPlanForm({ initial, ctx, onClose }) {
   const remove = () => {
     update("assessmentPlans", (prev) => prev.filter((x) => x.id !== p.id));
     update("caps", (prev) => prev.filter((c) => c.assessmentPlanId !== p.id));
+    // Deleting is only ever reachable from AuditPlanDetail's edit form (the
+    // list view has no direct edit/delete on its rows) — clearing the
+    // detail route sends the user back to the Audit Plan landing list
+    // instead of leaving them on a detail page for a record that's gone.
+    ctx.setDetail(null);
     onClose();
   };
   return (
@@ -2740,21 +2732,108 @@ function AuditPlanDetail({ id, ctx, onBack }) {
   );
 }
 
-/* --- Audit Management (recording): actual audits per factory, with NC detail --- */
-function AuditRecordsView({ ctx }) {
+/* --- Audit Findings: read-only rollup of every NC-status question row
+   across all Audit Tool audits, sorted by company. Findings themselves are
+   only ever entered once, in Audit Tool while conducting the audit — this
+   view has no create/edit form of its own, it just surfaces what's already
+   there. --- */
+// Findings are grouped by the audit they came from (company + audit date)
+// rather than exported as one flat table — each audit becomes its own
+// titled section, since that's the natural unit a factory/company report
+// is read as, and the export mirrors that instead of repeating the
+// company name and date on every single row.
+function groupFindingsByAudit(list) {
+  const order = [];
+  const byAudit = new Map();
+  for (const f of list) {
+    if (!byAudit.has(f.auditId)) {
+      byAudit.set(f.auditId, { companyName: f.companyName, auditDate: f.auditDate, rows: [] });
+      order.push(f.auditId);
+    }
+    byAudit.get(f.auditId).rows.push(f);
+  }
+  return order.map((auditId) => byAudit.get(auditId));
+}
+
+function exportAuditFindings(list) {
+  const groups = groupFindingsByAudit(list);
+  const aoa = [["Audit Findings"], [`Generated ${fmtDate(todayISO())}`], []];
+  for (const g of groups) {
+    aoa.push([g.companyName || "Unassigned"]);
+    aoa.push([`Audit Date: ${fmtDate(g.auditDate)}`]);
+    aoa.push(["No.", "Question No.", "Findings", "Rating"]);
+    g.rows.forEach((f, i) => aoa.push([i + 1, f.questionNo || "", f.findings || "", f.rating || ""]));
+    aoa.push([]);
+  }
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Audit Findings");
+  const out = XLSX.write(wb, { bookType: "xlsx", type: "array" });
+  downloadBlob(new Blob([out], { type: "application/octet-stream" }), `audit-findings-${todayISO()}.xlsx`);
+}
+
+function exportAuditFindingsPdf(list) {
+  const groups = groupFindingsByAudit(list);
+  const win = window.open("", "_blank");
+  if (!win) { alert("Please allow pop-ups to export a PDF."); return; }
+  const esc = (s) => (s ?? "").toString().replace(/</g, "&lt;");
+  const styles = `
+    body{font-family:Arial,Helvetica,sans-serif;padding:28px;color:${T.ink}}
+    h1{font-size:19px;margin:0 0 2px} .sub{font-size:12px;color:${T.muted};margin-bottom:16px}
+    h2{font-size:14px;margin:18px 0 2px} .meta{font-size:11.5px;color:${T.muted};margin-bottom:8px}
+    table{width:100%;border-collapse:collapse;margin-bottom:6px} th,td{border:1px solid #D9D9D9;padding:7px 9px;font-size:11.5px;text-align:left;vertical-align:top}
+    th{background:${T.bg};font-weight:700}
+  `;
+  const sections = groups.map((g) => {
+    const rows = g.rows.map((f, i) => `<tr><td>${i + 1}</td><td>${esc(f.questionNo)}</td><td>${esc(f.findings)}</td><td>${esc(f.rating)}</td></tr>`).join("");
+    return `
+      <h2>${esc(g.companyName || "Unassigned")}</h2>
+      <div class="meta">Audit Date: ${esc(fmtDate(g.auditDate))}</div>
+      <table><thead><tr><th>No.</th><th>Question No.</th><th>Findings</th><th>Rating</th></tr></thead><tbody>${rows}</tbody></table>
+    `;
+  }).join("");
+  win.document.write(`<html><head><title>Audit Findings</title><style>${styles}</style></head><body>
+    <h1>Audit Findings</h1><div class="sub">Generated ${fmtDate(todayISO())}</div>
+    ${sections}
+  </body></html>`);
+  win.document.close();
+  win.focus();
+  setTimeout(() => win.print(), 350);
+}
+
+function AuditFindingsView({ ctx }) {
   const { data } = ctx;
   const [companyFilter, setCompanyFilter] = useState("");
-  const [form, setForm] = useState(null);
-  const canEdit = hasPerm(ctx, "assessment", "edit");
 
-  const sorted = [...data.auditRecords].filter((r) => inScope(ctx, r.companyId)).sort((a, b) => (b.auditDate || "").localeCompare(a.auditDate || ""));
-  const filtered = sorted.filter((r) => !companyFilter || r.companyId === companyFilter);
+  const findings = (data.auditTool || [])
+    .filter((at) => inScope(ctx, at.companyId))
+    .flatMap((at) => {
+      const co = data.companies.find((c) => c.id === at.companyId);
+      return (at.questions || [])
+        .filter((q) => q.status === "NC")
+        .map((q) => ({
+          id: `${at.id}_${q.questionId}`,
+          auditId: at.id,
+          companyId: at.companyId,
+          companyName: co?.name || "Unassigned",
+          auditDate: at.auditDate,
+          questionNo: q.questionNo,
+          findings: q.findings,
+          rating: q.rating,
+        }));
+    })
+    .sort((a, b) => a.companyName.localeCompare(b.companyName) || (b.auditDate || "").localeCompare(a.auditDate || "") || a.auditId.localeCompare(b.auditId));
+
+  const filtered = findings.filter((f) => !companyFilter || f.companyId === companyFilter);
 
   return (
     <div>
-      <div style={{ padding: "0 18px 10px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <span style={{ fontSize: 12.5, color: T.muted }}>{sorted.length} audits recorded</span>
-        {canEdit && <Btn small onClick={() => setForm({})}><Plus size={15} />Record audit</Btn>}
+      <div style={{ padding: "0 18px 10px" }}>
+        <span style={{ fontSize: 12.5, color: T.muted }}>{filtered.length} NC finding{filtered.length === 1 ? "" : "s"}</span>
+      </div>
+      <div style={{ display: "flex", gap: 8, padding: "0 18px 10px" }}>
+        <Btn variant="ghost" small onClick={() => exportAuditFindings(filtered)}><Download size={13} /> Export Excel</Btn>
+        <Btn variant="ghost" small onClick={() => exportAuditFindingsPdf(filtered)}><Printer size={13} /> Export PDF</Btn>
       </div>
       <div style={{ padding: "0 18px 10px" }}>
         <Select value={companyFilter} onChange={(e) => setCompanyFilter(e.target.value)}>
@@ -2763,139 +2842,35 @@ function AuditRecordsView({ ctx }) {
         </Select>
       </div>
       <div style={{ padding: "0 18px" }}>
-        {filtered.length === 0 && <EmptyState icon={ShieldCheck} color={MODULE_COLORS.assessment} title="No audits recorded" hint="Record the result of a completed audit." />}
-        {filtered.map((r) => {
-          const co = data.companies.find((c) => c.id === r.companyId);
-          const ncCount = (r.ncs || []).length;
-          return (
-            <Row key={r.id} onClick={() => ctx.setDetail({ type: "auditRecord", id: r.id })} left={<ShieldCheck size={16} color={T.amber} />}
-              title={co?.name || "Unassigned"} sub={`${fmtDate(r.auditDate)} · ${r.auditType || "—"}`}
-              right={ncCount > 0 ? <Pill tone="amber">{ncCount} NC{ncCount === 1 ? "" : "s"}</Pill> : <Pill tone="green">Clear</Pill>} />
-          );
-        })}
+        {filtered.length === 0 && <EmptyState icon={AlertTriangle} color={MODULE_COLORS.assessment} title="No NC findings" hint="Questions marked NC in Audit Tool will show up here, sorted by company." />}
+        {filtered.length > 0 && (
+          <div style={{ overflowX: "auto", border: `1px solid ${T.border}`, borderRadius: 12 }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+              <thead>
+                <tr style={{ background: T.bg }}>
+                  <th style={checklistThStyle}>Company</th>
+                  <th style={checklistThStyle}>Audit Date</th>
+                  <th style={checklistThStyle}>Question No.</th>
+                  <th style={checklistThStyle}>Findings</th>
+                  <th style={checklistThStyle}>Rating</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((f) => (
+                  <tr key={f.id} style={{ borderTop: `1px solid ${T.border}`, background: T.surface }}>
+                    <td style={{ ...checklistTdStyle, fontWeight: 700, whiteSpace: "nowrap" }}>{f.companyName}</td>
+                    <td style={{ ...checklistTdStyle, color: T.ink2, whiteSpace: "nowrap" }}>{fmtDate(f.auditDate)}</td>
+                    <td style={{ ...checklistTdStyle, color: T.ink2, fontWeight: 700, whiteSpace: "nowrap" }}>{f.questionNo || "—"}</td>
+                    <td style={{ ...checklistTdStyle, color: f.findings ? T.ink : T.muted, minWidth: 240 }}>{f.findings || "—"}</td>
+                    <td style={{ ...checklistTdStyle, whiteSpace: "nowrap" }}>{f.rating ? <Pill tone={f.rating === "Critical" || f.rating === "Zero Tolerance" ? "red" : f.rating === "Major" ? "amber" : "muted"}>{f.rating}</Pill> : <span style={{ color: T.muted }}>—</span>}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
-      {form && <AuditRecordForm initial={form} ctx={ctx} onClose={() => setForm(null)} />}
     </div>
-  );
-}
-
-function AuditRecordForm({ initial, ctx, onClose }) {
-  const { update } = ctx;
-  const [r, setR] = useState({
-    companyId: ctx.scopeCompanyId && ctx.scopeCompanyId !== "__unassigned__" ? ctx.scopeCompanyId : (ctx.visibleCompanies[0]?.id || ""),
-    auditDate: todayISO(), auditType: AUDIT_TYPES[0], ncs: [],
-    ...initial,
-  });
-  const save = () => {
-    if (!r.companyId || !r.auditDate) return;
-    update("auditRecords", (prev) => r.id && prev.some((x) => x.id === r.id) ? prev.map((x) => (x.id === r.id ? r : x)) : [...prev, { ...r, id: uid("ar"), ncs: r.ncs || [] }]);
-    onClose();
-  };
-  const remove = () => { update("auditRecords", (prev) => prev.filter((x) => x.id !== r.id)); onClose(); };
-  return (
-    <Sheet title={initial.id ? "Edit audit record" : "Record audit"} onClose={onClose}>
-      <Field label="Factory / Company">
-        <Select value={r.companyId} onChange={(e) => setR({ ...r, companyId: e.target.value })}>
-          {ctx.visibleCompanies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-        </Select>
-      </Field>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-        <Field label="Audit date"><TextInput type="date" value={r.auditDate} onChange={(e) => setR({ ...r, auditDate: e.target.value })} /></Field>
-        <Field label="Audit type">
-          <Select value={r.auditType} onChange={(e) => setR({ ...r, auditType: e.target.value })}>
-            {AUDIT_TYPES.map((t) => <option key={t}>{t}</option>)}
-          </Select>
-        </Field>
-      </div>
-      <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
-        {initial.id && hasPerm(ctx, "assessment", "delete") && <Btn variant="danger" onClick={remove}><Trash2 size={15} /> Delete</Btn>}
-        <div style={{ flex: 1 }} />
-        <Btn variant="ghost" onClick={onClose}>Cancel</Btn>
-        <Btn onClick={save}>Save</Btn>
-      </div>
-    </Sheet>
-  );
-}
-
-function AuditRecordDetail({ id, ctx, onBack }) {
-  const { data } = ctx;
-  const r = data.auditRecords.find((x) => x.id === id);
-  const [form, setForm] = useState(null);
-  const [ncForm, setNcForm] = useState(null);
-  if (!r) return null;
-  const co = data.companies.find((c) => c.id === r.companyId);
-  const canEdit = hasPerm(ctx, "assessment", "edit");
-  const ncs = r.ncs || [];
-  return (
-    <div>
-      <div style={{ padding: "14px 18px 0" }}><Btn variant="ghost" small onClick={onBack}><ArrowLeft size={14} />All audits</Btn></div>
-      <Header title={co?.name || "Audit record"} subtitle={`${fmtDate(r.auditDate)} · ${r.auditType || "—"}`} icon={ShieldCheck} color={MODULE_COLORS.assessment} action={canEdit ? <Btn small onClick={() => setForm(r)}><Pencil size={13} />Edit</Btn> : null} />
-      <div style={{ padding: "0 18px" }}>
-        <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 14, padding: 14, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, fontSize: 13 }}>
-          <div><div style={{ color: T.muted, fontSize: 11.5, fontWeight: 700 }}>AUDIT DATE</div>{fmtDate(r.auditDate)}</div>
-          <div><div style={{ color: T.muted, fontSize: 11.5, fontWeight: 700 }}>AUDIT TYPE</div>{r.auditType || "—"}</div>
-          <div><div style={{ color: T.muted, fontSize: 11.5, fontWeight: 700 }}>NUMBER OF NCs</div>{ncs.length}</div>
-        </div>
-      </div>
-      <div style={{ padding: "6px 18px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <SectionLabel>Non-compliances (NCs)</SectionLabel>
-        {canEdit && <Btn small variant="ghost" onClick={() => setNcForm({})}><Plus size={13} />Add NC</Btn>}
-      </div>
-      <div style={{ padding: "0 18px" }}>
-        {ncs.length === 0 && <EmptyRow text="No non-compliances recorded for this audit." />}
-        {ncs.map((nc) => (
-          <Row key={nc.id} onClick={canEdit ? () => setNcForm(nc) : undefined} left={<AlertTriangle size={16} color={T.amber} />}
-            title={nc.description} sub={nc.status || "Open"}
-            right={<Pill tone={nc.severity === "Critical" ? "red" : nc.severity === "Major" ? "amber" : "muted"}>{nc.severity || "Minor"}</Pill>} />
-        ))}
-      </div>
-      {form && <AuditRecordForm initial={form} ctx={ctx} onClose={() => setForm(null)} />}
-      {ncForm && <AuditNcForm record={r} initial={ncForm} ctx={ctx} onClose={() => setNcForm(null)} />}
-    </div>
-  );
-}
-
-function AuditNcForm({ record, initial, ctx, onClose }) {
-  const { update } = ctx;
-  const [nc, setNc] = useState({ description: "", severity: AUDIT_NC_SEVERITIES[0], status: AUDIT_NC_STATUSES[0], ...initial });
-  const save = () => {
-    if (!nc.description.trim()) return;
-    update("auditRecords", (prev) => prev.map((r) => {
-      if (r.id !== record.id) return r;
-      const existing = r.ncs || [];
-      const next = nc.id && existing.some((x) => x.id === nc.id)
-        ? existing.map((x) => (x.id === nc.id ? nc : x))
-        : [...existing, { ...nc, id: uid("nc") }];
-      return { ...r, ncs: next };
-    }));
-    onClose();
-  };
-  const remove = () => {
-    update("auditRecords", (prev) => prev.map((r) => r.id === record.id ? { ...r, ncs: (r.ncs || []).filter((x) => x.id !== nc.id) } : r));
-    onClose();
-  };
-  return (
-    <Sheet title={initial.id ? "Edit non-compliance" : "Add non-compliance"} onClose={onClose}>
-      <Field label="Description"><TextArea rows={3} value={nc.description} onChange={(e) => setNc({ ...nc, description: e.target.value })} placeholder="Describe the non-compliance found…" /></Field>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-        <Field label="Severity">
-          <Select value={nc.severity} onChange={(e) => setNc({ ...nc, severity: e.target.value })}>
-            {AUDIT_NC_SEVERITIES.map((s) => <option key={s}>{s}</option>)}
-          </Select>
-        </Field>
-        <Field label="Status">
-          <Select value={nc.status} onChange={(e) => setNc({ ...nc, status: e.target.value })}>
-            {AUDIT_NC_STATUSES.map((s) => <option key={s}>{s}</option>)}
-          </Select>
-        </Field>
-      </div>
-      <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
-        {initial.id && hasPerm(ctx, "assessment", "delete") && <Btn variant="danger" onClick={remove}><Trash2 size={15} /> Delete</Btn>}
-        <div style={{ flex: 1 }} />
-        <Btn variant="ghost" onClick={onClose}>Cancel</Btn>
-        <Btn onClick={save}>Save</Btn>
-      </div>
-    </Sheet>
   );
 }
 
@@ -3206,7 +3181,7 @@ function AuditToolForm({ ctx, onClose }) {
   const save = () => {
     if (!companyId || selectedIds.size === 0) return;
     const questions = data.auditChecklists.filter((q) => selectedIds.has(q.id))
-      .map((q) => ({ questionId: q.id, questionNo: q.questionNo, question: q.question, category: q.category, legalReference: q.legalReference, auditType: q.auditType || "", status: "", findings: "", rating: "" }));
+      .map((q) => ({ questionId: q.id, questionNo: q.questionNo, question: q.question, category: q.category, legalReference: q.legalReference, auditType: q.auditType || "", status: "C", findings: "", rating: "" }));
     const record = { id: uid("at"), companyId, auditDate, auditType, status: "In Progress", questions };
     update("auditTool", (prev) => [...(prev || []), record]);
     onClose();
@@ -3264,6 +3239,7 @@ function AuditToolDetail({ id, ctx, onBack }) {
   const [uploadingQid, setUploadingQid] = useState(null);
   const fileInputRef = useRef(null);
   const pendingQidRef = useRef(null);
+  const dirtyRef = useRef(false);
 
   const guidanceByChecklistId = useMemo(
     () => new Map((data.auditGuidance || []).map((g) => [g.checklistId, g])),
@@ -3282,12 +3258,36 @@ function AuditToolDetail({ id, ctx, onBack }) {
     })();
   }, [id]);
 
+  const canEdit = hasPerm(ctx, "assessment", "edit");
+  const canFill = canEdit && at?.status !== "Completed";
+
+  // Kept in sync on every render (not via an effect, so there's no lag) so
+  // the unmount-time autosave below — registered once — always sees the
+  // latest edits instead of whatever was current when it was first set up.
+  const latestRef = useRef();
+  latestRef.current = { rows, atId: at?.id, canFill };
+
+  // Persist any unsaved findings/status/rating edits the moment this view
+  // unmounts, e.g. navigating back to the audit list or switching to a
+  // different module — without this, edits typed but never explicitly
+  // saved via "Save progress" would be silently lost.
+  useEffect(() => {
+    return () => {
+      const { rows: r, atId, canFill: cf } = latestRef.current;
+      if (dirtyRef.current && cf && atId) {
+        update("auditTool", (prev) => prev.map((a) => (a.id === atId ? { ...a, questions: r } : a)));
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   if (!at) return null;
   const co = data.companies.find((c) => c.id === at.companyId);
-  const canEdit = hasPerm(ctx, "assessment", "edit");
-  const canFill = canEdit && at.status !== "Completed";
 
-  const setRow = (qId, patch) => setRows((prev) => prev.map((r) => (r.questionId === qId ? { ...r, ...patch } : r)));
+  const setRow = (qId, patch) => {
+    dirtyRef.current = true;
+    setRows((prev) => prev.map((r) => (r.questionId === qId ? { ...r, ...patch } : r)));
+  };
 
   const persistEvidence = async (next) => {
     setEvidenceByQ(next);
@@ -3329,8 +3329,14 @@ function AuditToolDetail({ id, ctx, onBack }) {
     persistEvidence(next);
   };
 
-  const saveProgress = () => update("auditTool", (prev) => prev.map((a) => (a.id === at.id ? { ...a, questions: rows } : a)));
-  const markCompleted = () => update("auditTool", (prev) => prev.map((a) => (a.id === at.id ? { ...a, questions: rows, status: "Completed" } : a)));
+  const saveProgress = () => {
+    update("auditTool", (prev) => prev.map((a) => (a.id === at.id ? { ...a, questions: rows } : a)));
+    dirtyRef.current = false;
+  };
+  const markCompleted = () => {
+    update("auditTool", (prev) => prev.map((a) => (a.id === at.id ? { ...a, questions: rows, status: "Completed" } : a)));
+    dirtyRef.current = false;
+  };
   const reopen = () => update("auditTool", (prev) => prev.map((a) => (a.id === at.id ? { ...a, status: "In Progress" } : a)));
   const remove = async () => {
     update("auditTool", (prev) => prev.filter((a) => a.id !== at.id));
@@ -3539,29 +3545,27 @@ function RiskAssessmentView({ ctx }) {
   );
 }
 
-// Caps aren't directly companyId-scoped (they hang off an audit plan, which
-// hangs off an advisory cycle) — this walks that chain so a risk can only
-// link to a CAP belonging to the same factory it was raised against.
-function capsForCompany(data, companyId) {
-  return data.caps.filter((c) => {
-    const ap = data.assessmentPlans.find((a) => a.id === c.assessmentPlanId);
-    const adv = data.advisoryInfo.find((a) => a.id === ap?.advisoryInfoId);
-    return adv?.companyId === companyId;
-  });
-}
-
 function RiskAssessmentForm({ initial, ctx, onClose }) {
   const { data, update } = ctx;
   const [r, setR] = useState({
     companyId: ctx.scopeCompanyId && ctx.scopeCompanyId !== "__unassigned__" ? ctx.scopeCompanyId : (ctx.visibleCompanies[0]?.id || ""),
     riskNo: "", date: todayISO(), area: "", category: CAP_CLUSTERS[0], hazard: "", description: "",
     likelihood: 3, severity: 3, existingControls: "", recommendedActions: "",
-    assignedTo: "", targetDate: "", actualCompletionDate: "", status: RISK_STATUSES[0], linkedCapId: "",
+    assignedTo: "", targetDate: "", actualCompletionDate: "", status: RISK_STATUSES[0],
     ...initial,
   });
   const score = (r.likelihood || 0) * (r.severity || 0);
   const level = riskLevelOf(score);
-  const companyCaps = capsForCompany(data, r.companyId);
+  // Recommendations authored in Audit Management → Audit Guidance can be
+  // reused here instead of retyping the same recommended action every time
+  // the same kind of finding comes up.
+  const guidanceOptions = useMemo(() => {
+    const checklistById = new Map(data.auditChecklists.map((cl) => [cl.id, cl]));
+    return (data.auditGuidance || [])
+      .filter((g) => (g.recommendation || "").trim())
+      .map((g) => ({ id: g.id, recommendation: g.recommendation, checklist: checklistById.get(g.checklistId) }))
+      .filter((g) => g.checklist);
+  }, [data.auditGuidance, data.auditChecklists]);
 
   // Entering an actual completion date means the risk is done — status can
   // only be "Closed" while a date is set, so the two fields can never say
@@ -3573,6 +3577,7 @@ function RiskAssessmentForm({ initial, ctx, onClose }) {
   const save = () => {
     if (!r.companyId || !r.description.trim()) return;
     const record = { ...r, status: r.actualCompletionDate ? "Closed" : r.status };
+    delete record.linkedCapId;
     update("riskAssessments", (prev) => record.id && prev.some((x) => x.id === record.id) ? prev.map((x) => (x.id === record.id ? record : x)) : [...prev, { ...record, id: uid("ra") }]);
     onClose();
   };
@@ -3618,7 +3623,20 @@ function RiskAssessmentForm({ initial, ctx, onClose }) {
         <Pill tone={riskLevelTone(level)}>{level}</Pill>
       </div>
       <Field label="Existing controls"><TextArea value={r.existingControls} onChange={(e) => setR({ ...r, existingControls: e.target.value })} placeholder="Controls already in place…" /></Field>
-      <Field label="Recommended actions"><TextArea value={r.recommendedActions} onChange={(e) => setR({ ...r, recommendedActions: e.target.value })} placeholder="Actions to reduce likelihood/severity…" /></Field>
+      <Field label="Recommended actions">
+        {guidanceOptions.length > 0 && (
+          <Select value="" onChange={(e) => {
+            const opt = guidanceOptions.find((g) => g.id === e.target.value);
+            if (opt) setR((prev) => ({ ...prev, recommendedActions: opt.recommendation }));
+          }} style={{ marginBottom: 8 }}>
+            <option value="">Insert from Audit Guidance recommendation…</option>
+            {guidanceOptions.map((g) => (
+              <option key={g.id} value={g.id}>{g.checklist.questionNo ? `${g.checklist.questionNo} · ` : ""}{g.recommendation}</option>
+            ))}
+          </Select>
+        )}
+        <TextArea value={r.recommendedActions} onChange={(e) => setR({ ...r, recommendedActions: e.target.value })} placeholder="Pick a recommendation from Audit Guidance above, or type your own…" />
+      </Field>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
         <Field label="Assigned to"><TextInput value={r.assignedTo} onChange={(e) => setR({ ...r, assignedTo: e.target.value })} /></Field>
         <Field label="Target date"><TextInput type="date" value={r.targetDate} onChange={(e) => setR({ ...r, targetDate: e.target.value })} /></Field>
@@ -3631,12 +3649,6 @@ function RiskAssessmentForm({ initial, ctx, onClose }) {
           {RISK_STATUSES.map((s) => <option key={s}>{s}</option>)}
         </Select>
         {r.actualCompletionDate && <div style={{ fontSize: 11.5, color: T.muted, marginTop: 6 }}>Locked to Closed while an actual completion date is set — clear the date to change status.</div>}
-      </Field>
-      <Field label="Linked CAP (optional)">
-        <Select value={r.linkedCapId} onChange={(e) => setR({ ...r, linkedCapId: e.target.value })}>
-          <option value="">— None —</option>
-          {companyCaps.map((c) => <option key={c.id} value={c.id}>{c.ncNumber} · {c.area}</option>)}
-        </Select>
       </Field>
       <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
         {initial.id && hasPerm(ctx, "risk", "delete") && <Btn variant="danger" onClick={remove}><Trash2 size={15} /> Delete</Btn>}
@@ -3721,6 +3733,16 @@ function CapForm({ initial, ctx, onClose }) {
     const adv = data.advisoryInfo.find((a) => a.id === p.advisoryInfoId);
     return inScope(ctx, adv?.companyId);
   });
+  // Recommendations authored in Audit Management → Audit Guidance can be
+  // reused here instead of retyping the same corrective action every time
+  // the same kind of question comes up on an audit.
+  const guidanceOptions = useMemo(() => {
+    const checklistById = new Map(data.auditChecklists.map((cl) => [cl.id, cl]));
+    return (data.auditGuidance || [])
+      .filter((g) => (g.recommendation || "").trim())
+      .map((g) => ({ id: g.id, recommendation: g.recommendation, checklist: checklistById.get(g.checklistId) }))
+      .filter((g) => g.checklist);
+  }, [data.auditGuidance, data.auditChecklists]);
   const [c, setC] = useState({
     assessmentPlanId: scopedPlans[0]?.id || "", ncNumber: "", area: "", rootCause: "",
     correctiveActions: "", leadPerson: "", supportPerson: "", targetDate: "", actualDate: "",
@@ -3747,37 +3769,26 @@ function CapForm({ initial, ctx, onClose }) {
           })}
         </Select>
       </Field>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-        <Field label="NC number"><TextInput value={c.ncNumber} onChange={(e) => setC({ ...c, ncNumber: e.target.value })} placeholder="NC-01" /></Field>
-        <Field label="Area of improvement"><TextInput value={c.area} onChange={(e) => setC({ ...c, area: e.target.value })} placeholder="e.g. Fire Safety" /></Field>
-      </div>
+      <Field label="NC number"><TextInput value={c.ncNumber} onChange={(e) => setC({ ...c, ncNumber: e.target.value })} placeholder="NC-01" /></Field>
+      <Field label="Area of improvement">
+        <TextArea rows={3} value={c.area} onChange={(e) => setC({ ...c, area: e.target.value })} placeholder="e.g. Fire Safety" />
+      </Field>
       <Field label="Root cause">
-        {data.capRecommendations.length > 0 && (
-          <Select value="" onChange={(e) => {
-            const rec = data.capRecommendations.find((r) => r.rootCause === e.target.value);
-            if (rec) setC((prev) => ({ ...prev, rootCause: rec.rootCause, area: prev.area || rec.area }));
-          }} style={{ marginBottom: 8 }}>
-            <option value="">Insert from CAP recommendations…</option>
-            {data.capRecommendations.map((r) => (
-              <option key={r.id} value={r.rootCause}>{r.ncNo} · {r.rootCause}</option>
-            ))}
-          </Select>
-        )}
-        <TextArea rows={5} value={c.rootCause} onChange={(e) => setC({ ...c, rootCause: e.target.value })} placeholder="Pick from the list above, or type your own…" />
+        <TextArea rows={5} value={c.rootCause} onChange={(e) => setC({ ...c, rootCause: e.target.value })} placeholder="Describe the root cause…" />
       </Field>
       <Field label="Corrective actions">
-        {data.capRecommendations.length > 0 && (
+        {guidanceOptions.length > 0 && (
           <Select value="" onChange={(e) => {
-            const rec = data.capRecommendations.find((r) => r.proposedCA === e.target.value);
-            if (rec) setC((prev) => ({ ...prev, correctiveActions: rec.proposedCA, area: prev.area || rec.area }));
+            const opt = guidanceOptions.find((g) => g.id === e.target.value);
+            if (opt) setC((prev) => ({ ...prev, correctiveActions: opt.recommendation }));
           }} style={{ marginBottom: 8 }}>
-            <option value="">Insert from CAP recommendations…</option>
-            {data.capRecommendations.map((r) => (
-              <option key={r.id} value={r.proposedCA}>{r.ncNo} · {r.area} ({r.cluster})</option>
+            <option value="">Insert from Audit Guidance recommendation…</option>
+            {guidanceOptions.map((g) => (
+              <option key={g.id} value={g.id}>{g.checklist.questionNo ? `${g.checklist.questionNo} · ` : ""}{g.recommendation}</option>
             ))}
           </Select>
         )}
-        <TextArea rows={5} value={c.correctiveActions} onChange={(e) => setC({ ...c, correctiveActions: e.target.value })} placeholder="Pick from the list above, or type your own…" />
+        <TextArea rows={5} value={c.correctiveActions} onChange={(e) => setC({ ...c, correctiveActions: e.target.value })} placeholder="Pick a recommendation from Audit Guidance above, or type your own…" />
       </Field>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
         <Field label="Lead person"><TextInput value={c.leadPerson} onChange={(e) => setC({ ...c, leadPerson: e.target.value })} /></Field>
@@ -4001,147 +4012,6 @@ function BipartiteForm({ initial, ctx, onClose }) {
 /* ---------------------------------------------------------------
    CAP RECOMMENDATION LIBRARY
 ----------------------------------------------------------------*/
-function clusterTone(cluster) {
-  const map = {
-    "Child Labor": "red", "Forced Labor": "red", "Discrimination and Harassment": "amber",
-    "FoA & CBA": "blue", "Employment Contract and HR": "accent", "Working Time": "blue",
-    "Wages and Benefits": "green", "OSH": "amber", "Others": "muted",
-  };
-  return map[cluster] || "muted";
-}
-
-const CAP_RECOMMENDATION_COLUMNS = [
-  { key: "NC No.", field: "ncNo" },
-  { key: "Area", field: "area" },
-  { key: "Cluster", field: "cluster" },
-  { key: "Root Cause", field: "rootCause" },
-  { key: "Proposed CA", field: "proposedCA" },
-];
-
-function exportCapRecommendations(list) {
-  const rows = list.map((r) => Object.fromEntries(CAP_RECOMMENDATION_COLUMNS.map((c) => [c.key, r[c.field] || ""])));
-  exportExcel(rows, "CAP Recommendations", `cap-recommendations-${todayISO()}.xlsx`);
-}
-
-async function parseCapRecommendationsExcel(file) {
-  const buf = await file.arrayBuffer();
-  const wb = XLSX.read(buf, { type: "array" });
-  const sheet = wb.Sheets[wb.SheetNames[0]];
-  const rows = XLSX.utils.sheet_to_json(sheet, { defval: "" });
-  return rows
-    .map((row) => ({
-      id: uid("cr"),
-      ncNo: String(row["NC No."] ?? row["NC No"] ?? "").trim(),
-      area: String(row["Area"] ?? row["Areas of improvement"] ?? "").trim(),
-      cluster: CAP_CLUSTERS.includes(row["Cluster"]) ? row["Cluster"] : CAP_CLUSTERS[CAP_CLUSTERS.length - 1],
-      rootCause: String(row["Root Cause"] ?? "").trim(),
-      proposedCA: String(row["Proposed CA"] ?? "").trim(),
-    }))
-    .filter((r) => r.ncNo && r.area);
-}
-
-function CapRecommendationsView({ ctx }) {
-  const { data } = ctx;
-  const [q, setQ] = useState("");
-  const [clusterFilter, setClusterFilter] = useState("");
-  const [form, setForm] = useState(null);
-  const [importMsg, setImportMsg] = useState("");
-  const [importError, setImportError] = useState("");
-  const fileInputRef = useRef(null);
-
-  const filtered = data.capRecommendations.filter((r) => {
-    if (clusterFilter && r.cluster !== clusterFilter) return false;
-    const hay = `${r.ncNo} ${r.area} ${r.rootCause} ${r.proposedCA}`.toLowerCase();
-    return hay.includes(q.toLowerCase());
-  });
-
-  const canEdit = hasPerm(ctx, "caprecs", "edit");
-
-  const onImportFile = async (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setImportMsg("");
-    setImportError("");
-    try {
-      const imported = await parseCapRecommendationsExcel(file);
-      if (imported.length === 0) {
-        setImportError("No valid rows found. Expected columns: NC No., Area, Cluster, Root Cause, Proposed CA.");
-      } else {
-        ctx.update("capRecommendations", (prev) => [...prev, ...imported]);
-        setImportMsg(`Imported ${imported.length} recommendation${imported.length === 1 ? "" : "s"}.`);
-      }
-    } catch {
-      setImportError("Couldn't read that file — make sure it's a valid .xlsx or .xls file.");
-    } finally {
-      if (fileInputRef.current) fileInputRef.current.value = "";
-    }
-  };
-
-  return (
-    <div>
-      <Header title="CAP Recommendations" subtitle={`${data.capRecommendations.length} reference items`} icon={BookOpen} color={MODULE_COLORS.caprecs} action={canEdit ? <Btn small onClick={() => setForm({})}><Plus size={15} />New</Btn> : null} />
-      <div style={{ display: "flex", gap: 8, padding: "0 18px 10px" }}>
-        {canEdit && <Btn variant="ghost" small onClick={() => fileInputRef.current?.click()}><Upload size={13} /> Import Excel</Btn>}
-        <Btn variant="ghost" small onClick={() => exportCapRecommendations(filtered)}><Download size={13} /> Export Excel</Btn>
-        {canEdit && <input ref={fileInputRef} type="file" accept=".xlsx,.xls" onChange={onImportFile} style={{ display: "none" }} />}
-      </div>
-      {importMsg && <div style={{ padding: "0 18px 8px", fontSize: 12, color: T.green, fontWeight: 600 }}>{importMsg}</div>}
-      {importError && <div style={{ padding: "0 18px 8px", fontSize: 12, color: T.red, fontWeight: 600 }}>{importError}</div>}
-      <SearchBar value={q} onChange={setQ} placeholder="Search NC no., area, root cause…" />
-      <div style={{ padding: "0 18px 6px" }}>
-        <Select value={clusterFilter} onChange={(e) => setClusterFilter(e.target.value)}>
-          <option value="">All clusters</option>
-          {CAP_CLUSTERS.map((c) => <option key={c} value={c}>{c}</option>)}
-        </Select>
-      </div>
-      <div style={{ padding: "10px 18px" }}>
-        {filtered.length === 0 && <EmptyState icon={BookOpen} color={MODULE_COLORS.caprecs} title="No recommendations" hint="Build a library of standard root causes and corrective actions." />}
-        {filtered.map((r) => (
-          <div key={r.id} onClick={canEdit ? () => setForm(r) : undefined} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: 14, marginBottom: 8, cursor: canEdit ? "pointer" : "default" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-              <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: 14.5, color: T.ink }}>{r.ncNo} · {r.area}</span>
-              <Pill tone={clusterTone(r.cluster)}>{r.cluster}</Pill>
-            </div>
-            <div style={{ fontSize: 12.5, color: T.ink2, marginTop: 8 }}>
-              <span style={{ fontWeight: 700, color: T.muted }}>Root cause: </span>{r.rootCause}
-            </div>
-            <div style={{ fontSize: 12.5, color: T.ink2, marginTop: 6 }}>
-              <span style={{ fontWeight: 700, color: T.muted }}>Proposed CA: </span>{r.proposedCA}
-            </div>
-          </div>
-        ))}
-      </div>
-      {form && <CapRecommendationForm initial={form} onClose={() => setForm(null)} onSave={(v) => {
-        ctx.update("capRecommendations", (prev) => v.id && prev.some((p) => p.id === v.id) ? prev.map((p) => (p.id === v.id ? v : p)) : [...prev, { ...v, id: uid("cr") }]);
-        setForm(null);
-      }} onDelete={form.id && hasPerm(ctx, "caprecs", "delete") ? () => { ctx.update("capRecommendations", (prev) => prev.filter((p) => p.id !== form.id)); setForm(null); } : null} />}
-    </div>
-  );
-}
-
-function CapRecommendationForm({ initial, onClose, onSave, onDelete }) {
-  const [r, setR] = useState({ ncNo: "", area: "", cluster: CAP_CLUSTERS[0], rootCause: "", proposedCA: "", ...initial });
-  return (
-    <Sheet title={initial.id ? "Edit recommendation" : "New CAP recommendation"} onClose={onClose}>
-      <Field label="NC No."><TextInput value={r.ncNo} onChange={(e) => setR({ ...r, ncNo: e.target.value })} placeholder="e.g. NC-STD-01" /></Field>
-      <Field label="Areas of improvement"><TextInput value={r.area} onChange={(e) => setR({ ...r, area: e.target.value })} placeholder="e.g. Fire Safety" /></Field>
-      <Field label="Cluster">
-        <Select value={r.cluster} onChange={(e) => setR({ ...r, cluster: e.target.value })}>
-          {CAP_CLUSTERS.map((c) => <option key={c}>{c}</option>)}
-        </Select>
-      </Field>
-      <Field label="Possible root cause"><TextArea value={r.rootCause} onChange={(e) => setR({ ...r, rootCause: e.target.value })} /></Field>
-      <Field label="Proposed corrective action"><TextArea value={r.proposedCA} onChange={(e) => setR({ ...r, proposedCA: e.target.value })} /></Field>
-      <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
-        {onDelete && <Btn variant="danger" onClick={onDelete}><Trash2 size={15} /> Delete</Btn>}
-        <div style={{ flex: 1 }} />
-        <Btn variant="ghost" onClick={onClose}>Cancel</Btn>
-        <Btn onClick={() => r.ncNo.trim() && r.area.trim() && onSave(r)}>Save</Btn>
-      </div>
-    </Sheet>
-  );
-}
-
 /* ---------------------------------------------------------------
    TRAINING
 ----------------------------------------------------------------*/
@@ -4162,7 +4032,7 @@ function TrainingView({ ctx }) {
 
   return (
     <div>
-      <Header title="Training" subtitle={`${sorted.length} sessions`} icon={GraduationCap} color={MODULE_COLORS.training} action={canEdit ? <Btn small onClick={() => setForm({})}><Plus size={15} />New</Btn> : null} />
+      <Header title="Training Management" subtitle={`${sorted.length} sessions`} icon={GraduationCap} color={MODULE_COLORS.training} action={canEdit ? <Btn small onClick={() => setForm({})}><Plus size={15} />New</Btn> : null} />
       <SearchBar value={q} onChange={setQ} placeholder="Search topic, trainer, participants…" />
       <div style={{ display: "flex", gap: 6, padding: "10px 18px", overflowX: "auto" }}>
         {["All", ...TRAINING_STATUSES].map((f) => (
@@ -5232,8 +5102,7 @@ function RiskReport({ ctx }) {
   const enrichedAll = data.riskAssessments.map((r) => {
     const co = data.companies.find((c) => c.id === r.companyId);
     const score = (r.likelihood || 0) * (r.severity || 0);
-    const linkedCap = data.caps.find((c) => c.id === r.linkedCapId);
-    return { ...r, companyName: co?.name || "—", score, level: riskLevelOf(score), linkedCapLabel: linkedCap ? `${linkedCap.ncNumber} · ${linkedCap.area}` : "" };
+    return { ...r, companyName: co?.name || "—", score, level: riskLevelOf(score) };
   });
   const enriched = enrichedAll
     .filter((r) => {
@@ -5251,20 +5120,20 @@ function RiskReport({ ctx }) {
   const excelRows = enriched.map((r) => ({
     "No.": r.riskNo || "", "Hazards": r.hazard || "", "Existing Controls": r.existingControls || "",
     "Likelihood": r.likelihood, "Severity": r.severity, "Risk Score": r.score,
-    "Additional Controls": r.recommendedActions || "", "Linked CAP": r.linkedCapLabel || "None",
+    "Additional Controls": r.recommendedActions || "",
   }));
 
   const registerRows = enriched.map((r) => ({
     "Risk No.": r.riskNo || "", "Hazards": r.hazard || "", "Risk Description": r.description,
     "Identified Date": fmtDate(r.date), "Likelihood": r.likelihood, "Severity": r.severity, "Risk Score": r.score,
     "Risk Owner": r.assignedTo || "", "Description of Controls": r.existingControls || "",
-    "Target Completion Date": fmtDate(r.targetDate), "Linked CAP": r.linkedCapLabel || "None",
+    "Target Completion Date": fmtDate(r.targetDate),
   }));
   const registerColumns = [
     { key: "Risk No.", label: "Risk No." }, { key: "Hazards", label: "Hazards" }, { key: "Risk Description", label: "Description" },
     { key: "Identified Date", label: "Identified" }, { key: "Likelihood", label: "L" }, { key: "Severity", label: "S" },
     { key: "Risk Score", label: "Score" }, { key: "Risk Owner", label: "Owner" }, { key: "Description of Controls", label: "Controls" },
-    { key: "Target Completion Date", label: "Target" }, { key: "Linked CAP", label: "Linked CAP" },
+    { key: "Target Completion Date", label: "Target" },
   ];
 
   return (
@@ -5301,7 +5170,6 @@ function RiskReport({ ctx }) {
                   <th style={checklistThStyle}>Risk Owner</th>
                   <th style={checklistThStyle}>Description of Controls</th>
                   <th style={checklistThStyle}>Target</th>
-                  <th style={checklistThStyle}>Linked CAP</th>
                 </tr>
               </thead>
               <tbody>
@@ -5317,7 +5185,6 @@ function RiskReport({ ctx }) {
                     <td style={checklistTdStyle}>{r.assignedTo || "—"}</td>
                     <td style={checklistTdStyle}>{r.existingControls || "—"}</td>
                     <td style={{ ...checklistTdStyle, whiteSpace: "nowrap" }}>{fmtDate(r.targetDate)}</td>
-                    <td style={checklistTdStyle}>{r.linkedCapLabel || "—"}</td>
                   </tr>
                 ))}
               </tbody>
