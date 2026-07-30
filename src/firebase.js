@@ -141,3 +141,14 @@ export async function changePasswordWithVerification(email, oldPassword, newPass
   await reauthenticateWithCredential(auth.currentUser, EmailAuthProvider.credential(email, oldPassword));
   await updatePassword(auth.currentUser, newPassword);
 }
+
+/**
+ * Verifies the CURRENTLY signed-in user's password without changing
+ * anything — used to gate a dangerous, irreversible in-app action (e.g.
+ * wiping audit data) behind "prove you are who you say you are right now",
+ * on top of already having an open session. Throws (e.g. with code
+ * auth/wrong-password) if the password doesn't match; resolves if it does.
+ */
+export function verifyCurrentPassword(email, password) {
+  return reauthenticateWithCredential(auth.currentUser, EmailAuthProvider.credential(email, password));
+}

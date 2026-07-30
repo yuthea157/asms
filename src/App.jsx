@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import * as XLSX from "xlsx";
 import logo from "./assets/logo.jpg";
-import { signInEmail, createEmailAccount, sendReset, createAuthUserAsAdmin, changeOwnPassword, changePasswordWithVerification, logout as firebaseLogout } from "./firebase.js";
+import { signInEmail, createEmailAccount, sendReset, createAuthUserAsAdmin, changeOwnPassword, changePasswordWithVerification, verifyCurrentPassword, logout as firebaseLogout } from "./firebase.js";
 import {
   Building2, CalendarClock, ClipboardList, ShieldAlert, Users as UsersIcon,
   FileBarChart, Plus, X, ChevronRight, Search, Clock, AlertTriangle,
@@ -141,6 +141,23 @@ function compressImageFile(file, maxDim = 1100, quality = 0.7) {
   });
 }
 
+// Audit Tool evidence accepts photos AND general files (PDFs, docs…), unlike
+// the photo-only attachments above — images still get compressed the same
+// way, non-image files are just read as-is with a size cap since they can't
+// be downscaled.
+function readEvidenceFile(file, maxBytes = 4_000_000) {
+  if (file.type.startsWith("image/")) {
+    return compressImageFile(file).then((dataUrl) => ({ name: file.name, kind: "image", dataUrl }));
+  }
+  return new Promise((resolve, reject) => {
+    if (file.size > maxBytes) { reject(new Error(`"${file.name}" is too large (max 4MB for non-image files).`)); return; }
+    const reader = new FileReader();
+    reader.onload = () => resolve({ name: file.name, kind: "file", mime: file.type, dataUrl: reader.result });
+    reader.onerror = () => reject(new Error("Could not read file"));
+    reader.readAsDataURL(file);
+  });
+}
+
 const ROLE_LABEL = { admin: "Administrator", manager: "Manager", officer: "Advisory Officer", user: "Company User" };
 const COMPANY_TYPES = ["Manufacturing", "Garment & Textile", "Food & Beverage", "Construction", "Logistics", "Services", "Other"];
 const CAP_STATUSES = ["Open", "In Progress", "Completed"];
@@ -154,9 +171,9 @@ function seedData() {
   const apId = uid("ap");
   const capId = uid("cap");
   const checklistQs = [
-    { id: uid("aq"), questionNo: "Q-01", question: "Are all emergency exits unobstructed and clearly marked?", category: "OSH", legalReference: "Labor Law Art. 137" },
-    { id: uid("aq"), questionNo: "Q-02", question: "Are workers paid at least the applicable minimum wage on time?", category: "Wages and Benefits", legalReference: "Labor Law Art. 104" },
-    { id: uid("aq"), questionNo: "Q-03", question: "Is overtime voluntary and backed by documented worker consent?", category: "Working Time", legalReference: "Labor Law Art. 139" },
+    { id: uid("aq"), questionNo: "Q-01", question: "Are all emergency exits unobstructed and clearly marked?", category: "OSH", legalReference: "Labor Law Art. 137", auditType: "Safety (OSH)" },
+    { id: uid("aq"), questionNo: "Q-02", question: "Are workers paid at least the applicable minimum wage on time?", category: "Wages and Benefits", legalReference: "Labor Law Art. 104", auditType: "Social Compliance" },
+    { id: uid("aq"), questionNo: "Q-03", question: "Is overtime voluntary and backed by documented worker consent?", category: "Working Time", legalReference: "Labor Law Art. 139", auditType: "Social Compliance" },
   ];
   return {
     companies: [
@@ -228,10 +245,36 @@ function seedData() {
     permissions: defaultPermissions(),
     systemSettings: { timeZone: "UTC" },
     auditChecklists: checklistQs,
+    auditGuidance: [
+      {
+        id: uid("ag"), checklistId: checklistQs[0].id,
+        auditGuidance: "Walk all emergency exit routes end-to-end during the factory tour; confirm every exit door opens outward and is unlocked during all working hours.",
+        ncCriteria: "Any exit blocked, locked, or missing illuminated signage during working hours.",
+        rootCauses: "Storage overflow into exit corridors; no housekeeping SOP covering exit routes.",
+        recommendation: "Introduce a daily exit-route housekeeping checklist with floor supervisor sign-off.",
+      },
+      {
+        id: uid("ag"), checklistId: checklistQs[1].id,
+        auditGuidance: "Cross-check the most recent payroll register against the applicable minimum wage gazette for the reporting period.",
+        ncCriteria: "Any worker paid below the applicable statutory minimum wage, or wages paid more than 3 days after the due date.",
+        rootCauses: "Manual payroll calculation errors; unclear ownership of wage-rate updates after gazette changes.",
+        recommendation: "Automate minimum-wage checks in payroll software and assign a named owner for gazette updates.",
+      },
+    ],
     auditRecords: [
       {
         id: uid("ar"), companyId, auditDate: "2026-02-20", auditType: "Social Compliance",
         ncs: [{ id: uid("nc"), description: "Emergency exit in Building B partially blocked by stored materials.", severity: "Major", status: "Open" }],
+      },
+    ],
+    auditTool: [
+      {
+        id: uid("at"), companyId, auditDate: "2026-02-20", auditType: "Social Compliance", status: "In Progress",
+        questions: [
+          { questionId: checklistQs[0].id, questionNo: checklistQs[0].questionNo, question: checklistQs[0].question, category: checklistQs[0].category, legalReference: checklistQs[0].legalReference, auditType: checklistQs[0].auditType, status: "NC", findings: "Stored fabric rolls found blocking the Building B rear exit corridor.", rating: "Major" },
+          { questionId: checklistQs[1].id, questionNo: checklistQs[1].questionNo, question: checklistQs[1].question, category: checklistQs[1].category, legalReference: checklistQs[1].legalReference, auditType: checklistQs[1].auditType, status: "C", findings: "Payroll register cross-checked against the current minimum wage gazette — compliant.", rating: "" },
+          { questionId: checklistQs[2].id, questionNo: checklistQs[2].questionNo, question: checklistQs[2].question, category: checklistQs[2].category, legalReference: checklistQs[2].legalReference, auditType: checklistQs[2].auditType, status: "", findings: "", rating: "" },
+        ],
       },
     ],
     selfAssessments: [
@@ -334,7 +377,7 @@ function inScope(ctx, companyId) {
 /* ---------------------------------------------------------------
    STORAGE HOOK
 ----------------------------------------------------------------*/
-const KEYS = ["companies", "advisoryInfo", "visits", "assessmentPlans", "users", "caps", "meetingLogs", "bipartiteCommittee", "capRecommendations", "permissions", "systemSettings", "trainings", "grievances", "policies", "licenses", "auditChecklists", "auditRecords", "selfAssessments", "riskAssessments", "customDashboards"];
+const KEYS = ["companies", "advisoryInfo", "visits", "assessmentPlans", "users", "caps", "meetingLogs", "bipartiteCommittee", "capRecommendations", "permissions", "systemSettings", "trainings", "grievances", "policies", "licenses", "auditChecklists", "auditGuidance", "auditTool", "auditRecords", "selfAssessments", "riskAssessments", "customDashboards"];
 
 const CAP_CLUSTERS = [
   "Child Labor", "Forced Labor", "Discrimination and Harassment", "FoA & CBA",
@@ -361,6 +404,9 @@ const AUDIT_NC_SEVERITIES = ["Minor", "Major", "Critical"];
 const AUDIT_NC_STATUSES = ["Open", "Closed"];
 const SELF_ASSESSMENT_STATUSES = ["Draft", "Submitted", "Reviewed"];
 const SELF_ASSESSMENT_ANSWERS = ["Compliant", "Non-Compliant", "N/A"];
+
+const AUDIT_TOOL_QUESTION_STATUSES = ["NC", "C", "N/A"];
+const AUDIT_TOOL_RATINGS = ["Minor", "Major", "Critical", "Zero Tolerance"];
 
 const RISK_LIKELIHOOD_LABELS = ["Rare", "Unlikely", "Possible", "Likely", "Almost Certain"];
 const RISK_SEVERITY_LABELS = ["Negligible", "Minor", "Moderate", "Major", "Catastrophic"];
@@ -726,6 +772,7 @@ export default function App() {
   else if (detail?.type === "assessment") Body = <AuditPlanDetail id={detail.id} ctx={ctx} onBack={() => setDetail(null)} />;
   else if (detail?.type === "auditRecord") Body = <AuditRecordDetail id={detail.id} ctx={ctx} onBack={() => setDetail(null)} />;
   else if (detail?.type === "selfAssessment") Body = <SelfAssessmentDetail id={detail.id} ctx={ctx} onBack={() => setDetail(null)} />;
+  else if (detail?.type === "auditTool") Body = <AuditToolDetail id={detail.id} ctx={ctx} onBack={() => setDetail(null)} />;
   else if (tab === "dashboard" && hasPerm(ctx, "dashboard", "view")) {
     const goto = (t) => { setTab(t); setDetail(null); };
     Body = assignedDashboard
@@ -766,7 +813,7 @@ export default function App() {
           />
           <div style={{ flex: 1, overflowY: "auto", minWidth: 0 }}>
             <AccountCorner roleLabel={roleLabel} userName={role.name} email={role.email} onSignOut={handleSignOut} />
-            <div style={{ maxWidth: 820, margin: "0 auto", padding: "0 0 40px" }}>{Body}</div>
+            <div style={{ maxWidth: 1400, margin: "0 auto", padding: "0 0 40px" }}>{Body}</div>
           </div>
         </div>
       </Shell>
@@ -2056,16 +2103,75 @@ function VisitForm({ initial, ctx, onClose }) {
 ----------------------------------------------------------------*/
 const AUDIT_TABS = [
   { k: "checklist", l: "Audit Checklist" },
+  { k: "guidance", l: "Audit Guidance" },
+  { k: "tool", l: "Audit Tool" },
   { k: "plan", l: "Audit Plan" },
   { k: "records", l: "Audit Management" },
   { k: "selfassessment", l: "Self-Assessment" },
 ];
 
+// Gates the destructive "Reset audit data" action behind proving you know
+// the CURRENT password right now — a plain window.confirm() only checks
+// that a click happened, not that the person clicking is who they claim.
+function ResetAuditDataDialog({ ctx, onClose }) {
+  const [password, setPassword] = useState("");
+  const [showPw, setShowPw] = useState(false);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const submit = async () => {
+    if (!password) { setError("Enter your password."); return; }
+    setError("");
+    setBusy(true);
+    try {
+      await verifyCurrentPassword(ctx.role.email, password);
+      for (const at of ctx.data.auditTool || []) {
+        try { await window.storage.delete(`attachments:${at.id}`, true); } catch {}
+      }
+      ctx.update("auditChecklists", []);
+      ctx.update("auditGuidance", []);
+      ctx.update("auditTool", []);
+      ctx.update("selfAssessments", []);
+      onClose();
+    } catch (err) {
+      const code = err?.code || "";
+      setError(code === "auth/wrong-password" || code === "auth/invalid-credential" ? "Incorrect password." : authErrorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Sheet title="Reset audit data" onClose={onClose}>
+      <div style={{ color: T.red, fontSize: 12.5, fontWeight: 600, marginBottom: 14, lineHeight: 1.5 }}>
+        This will permanently delete ALL records in Audit Checklist, Audit Guidance, Audit Tool, and Self-Assessment
+        — including uploaded Audit Tool evidence photos/files. This cannot be undone.
+      </div>
+      <Field label="Enter your password to confirm">
+        <TextInput type={showPw ? "text" : "password"} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Your account password" onKeyDown={(e) => e.key === "Enter" && submit()} autoFocus />
+      </Field>
+      <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: T.muted, marginBottom: 14, cursor: "pointer" }}>
+        <input type="checkbox" checked={showPw} onChange={(e) => setShowPw(e.target.checked)} /> Show password
+      </label>
+      {error && <div style={{ color: T.red, fontSize: 12.5, marginBottom: 12, fontWeight: 600 }}>{error}</div>}
+      <div style={{ display: "flex", gap: 10 }}>
+        <div style={{ flex: 1 }} />
+        <Btn variant="ghost" onClick={onClose} disabled={busy}>Cancel</Btn>
+        <Btn variant="danger" onClick={submit} disabled={busy}>{busy ? "Verifying…" : "Delete all audit data"}</Btn>
+      </div>
+    </Sheet>
+  );
+}
+
 function AuditManagementView({ ctx }) {
   const [tab, setTab] = useState("checklist");
+  const [resetDialog, setResetDialog] = useState(false);
+  const canReset = hasPerm(ctx, "assessment", "delete");
+
   return (
     <div>
-      <Header title="Audit Management" subtitle="Checklists, audit plans & recorded audits" icon={ClipboardCheck} color={MODULE_COLORS.assessment} />
+      <Header title="Audit Management" subtitle="Checklists, audit plans & recorded audits" icon={ClipboardCheck} color={MODULE_COLORS.assessment}
+        action={canReset ? <Btn variant="danger" small onClick={() => setResetDialog(true)}><Trash2 size={13} />Reset audit data</Btn> : null} />
       <div style={{ display: "flex", gap: 6, padding: "10px 18px" }}>
         {AUDIT_TABS.map((t) => (
           <button key={t.k} onClick={() => setTab(t.k)} style={{
@@ -2076,9 +2182,12 @@ function AuditManagementView({ ctx }) {
         ))}
       </div>
       {tab === "checklist" && <AuditChecklistView ctx={ctx} />}
+      {tab === "guidance" && <AuditGuidanceView ctx={ctx} />}
+      {tab === "tool" && <AuditToolView ctx={ctx} />}
       {tab === "plan" && <AuditPlanView ctx={ctx} />}
       {tab === "records" && <AuditRecordsView ctx={ctx} />}
       {tab === "selfassessment" && <SelfAssessmentView ctx={ctx} />}
+      {resetDialog && <ResetAuditDataDialog ctx={ctx} onClose={() => setResetDialog(false)} />}
     </div>
   );
 }
@@ -2089,6 +2198,7 @@ const checklistTdStyle = { textAlign: "left", padding: "10px 12px", verticalAlig
 
 const AUDIT_CHECKLIST_COLUMNS = [
   { key: "Question No.", field: "questionNo" },
+  { key: "Audit Type", field: "auditType" },
   { key: "Category", field: "category" },
   { key: "Question", field: "question" },
   { key: "Legal Reference", field: "legalReference" },
@@ -2108,6 +2218,7 @@ async function parseAuditChecklistExcel(file) {
     .map((row) => ({
       id: uid("aq"),
       questionNo: String(row["Question No."] ?? row["Question No"] ?? "").trim(),
+      auditType: AUDIT_TYPES.includes(row["Audit Type"]) ? row["Audit Type"] : "",
       category: CAP_CLUSTERS.includes(row["Category"]) ? row["Category"] : CAP_CLUSTERS[CAP_CLUSTERS.length - 1],
       question: String(row["Question"] ?? "").trim(),
       legalReference: String(row["Legal Reference"] ?? "").trim(),
@@ -2119,6 +2230,7 @@ function AuditChecklistView({ ctx }) {
   const { data } = ctx;
   const [q, setQ] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("");
+  const [auditTypeFilter, setAuditTypeFilter] = useState("");
   const [form, setForm] = useState(null);
   const [importMsg, setImportMsg] = useState("");
   const [importError, setImportError] = useState("");
@@ -2128,7 +2240,8 @@ function AuditChecklistView({ ctx }) {
   const sorted = [...data.auditChecklists].sort((a, b) => (a.questionNo || "").localeCompare(b.questionNo || "", undefined, { numeric: true }) || (a.category || "").localeCompare(b.category || ""));
   const filtered = sorted
     .filter((c) => !categoryFilter || c.category === categoryFilter)
-    .filter((c) => `${c.questionNo || ""} ${c.question} ${c.category || ""} ${c.legalReference || ""}`.toLowerCase().includes(q.toLowerCase()));
+    .filter((c) => !auditTypeFilter || c.auditType === auditTypeFilter)
+    .filter((c) => `${c.questionNo || ""} ${c.question} ${c.category || ""} ${c.legalReference || ""} ${c.auditType || ""}`.toLowerCase().includes(q.toLowerCase()));
 
   const onImportFile = async (e) => {
     const file = e.target.files?.[0];
@@ -2138,7 +2251,7 @@ function AuditChecklistView({ ctx }) {
     try {
       const imported = await parseAuditChecklistExcel(file);
       if (imported.length === 0) {
-        setImportError("No valid rows found. Expected columns: Question No., Category, Question, Legal Reference.");
+        setImportError("No valid rows found. Expected columns: Question No., Audit Type, Category, Question, Legal Reference.");
       } else {
         ctx.update("auditChecklists", (prev) => [...prev, ...imported]);
         setImportMsg(`Imported ${imported.length} question${imported.length === 1 ? "" : "s"}.`);
@@ -2164,10 +2277,14 @@ function AuditChecklistView({ ctx }) {
       {importMsg && <div style={{ padding: "0 18px 8px", fontSize: 12, color: T.green, fontWeight: 600 }}>{importMsg}</div>}
       {importError && <div style={{ padding: "0 18px 8px", fontSize: 12, color: T.red, fontWeight: 600 }}>{importError}</div>}
       <SearchBar value={q} onChange={setQ} placeholder="Search question no., question, category, legal reference…" />
-      <div style={{ padding: "0 18px 10px" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, padding: "0 18px 10px" }}>
         <Select value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}>
           <option value="">All categories</option>
           {CAP_CLUSTERS.map((cl) => <option key={cl} value={cl}>{cl}</option>)}
+        </Select>
+        <Select value={auditTypeFilter} onChange={(e) => setAuditTypeFilter(e.target.value)}>
+          <option value="">All audit types</option>
+          {AUDIT_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
         </Select>
       </div>
       <div style={{ padding: "10px 18px" }}>
@@ -2178,6 +2295,7 @@ function AuditChecklistView({ ctx }) {
               <thead>
                 <tr style={{ background: T.bg }}>
                   <th style={checklistThStyle}>Question No.</th>
+                  <th style={checklistThStyle}>Audit Type</th>
                   <th style={checklistThStyle}>Category</th>
                   <th style={checklistThStyle}>Question</th>
                   <th style={checklistThStyle}>Legal Reference</th>
@@ -2187,6 +2305,7 @@ function AuditChecklistView({ ctx }) {
                 {filtered.map((c) => (
                   <tr key={c.id} onClick={canEdit ? () => setForm(c) : undefined} style={{ borderTop: `1px solid ${T.border}`, background: T.surface, cursor: canEdit ? "pointer" : "default" }}>
                     <td style={{ ...checklistTdStyle, color: T.ink2, fontWeight: 700, whiteSpace: "nowrap" }}>{c.questionNo || "—"}</td>
+                    <td style={{ ...checklistTdStyle, whiteSpace: "nowrap" }}>{c.auditType ? <Pill tone="blue">{c.auditType}</Pill> : <span style={{ color: T.muted }}>All types</span>}</td>
                     <td style={{ ...checklistTdStyle, whiteSpace: "nowrap" }}>{c.category ? <Pill tone="cyan">{c.category}</Pill> : <span style={{ color: T.muted }}>—</span>}</td>
                     <td style={{ ...checklistTdStyle, color: T.ink }}>{c.question}</td>
                     <td style={{ ...checklistTdStyle, color: c.legalReference ? T.ink2 : T.muted }}>{c.legalReference || "—"}</td>
@@ -2204,13 +2323,17 @@ function AuditChecklistView({ ctx }) {
 
 function AuditChecklistForm({ initial, ctx, onClose }) {
   const { update } = ctx;
-  const [c, setC] = useState({ questionNo: "", question: "", category: CAP_CLUSTERS[0], legalReference: "", ...initial });
+  const [c, setC] = useState({ questionNo: "", auditType: "", question: "", category: CAP_CLUSTERS[0], legalReference: "", ...initial });
   const save = () => {
     if (!c.question.trim()) return;
     update("auditChecklists", (prev) => c.id && prev.some((x) => x.id === c.id) ? prev.map((x) => (x.id === c.id ? c : x)) : [...prev, { ...c, id: uid("aq") }]);
     onClose();
   };
-  const remove = () => { update("auditChecklists", (prev) => prev.filter((x) => x.id !== c.id)); onClose(); };
+  const remove = () => {
+    update("auditChecklists", (prev) => prev.filter((x) => x.id !== c.id));
+    update("auditGuidance", (prev) => (prev || []).filter((g) => g.checklistId !== c.id));
+    onClose();
+  };
   return (
     <Sheet title={initial.id ? "Edit checklist question" : "New checklist question"} onClose={onClose}>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
@@ -2221,8 +2344,278 @@ function AuditChecklistForm({ initial, ctx, onClose }) {
           </Select>
         </Field>
       </div>
+      <Field label="Audit type">
+        <Select value={c.auditType} onChange={(e) => setC({ ...c, auditType: e.target.value })}>
+          <option value="">All audit types (applies to any audit)</option>
+          {AUDIT_TYPES.map((t) => <option key={t}>{t}</option>)}
+        </Select>
+      </Field>
       <Field label="Question"><TextArea rows={3} value={c.question} onChange={(e) => setC({ ...c, question: e.target.value })} placeholder="e.g. Are all emergency exits unobstructed and clearly marked?" /></Field>
       <Field label="Legal reference"><TextInput value={c.legalReference} onChange={(e) => setC({ ...c, legalReference: e.target.value })} placeholder="e.g. Labor Law Art. 137" /></Field>
+      <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
+        {initial.id && hasPerm(ctx, "assessment", "delete") && <Btn variant="danger" onClick={remove}><Trash2 size={15} /> Delete</Btn>}
+        <div style={{ flex: 1 }} />
+        <Btn variant="ghost" onClick={onClose}>Cancel</Btn>
+        <Btn onClick={save}>Save</Btn>
+      </div>
+    </Sheet>
+  );
+}
+
+/* --- Audit Guidance: guidance, NC criteria, root causes & recommendation
+   linked to an Audit Checklist question by Question No./Category/Question/
+   Legal Reference — those four fields always come live from the linked
+   checklist item rather than being duplicated, so editing a question's
+   wording later can't leave guidance rows describing an out-of-date
+   question. --- */
+const AUDIT_GUIDANCE_COLUMNS = [
+  { key: "Question No.", get: (g, c) => c?.questionNo || "" },
+  { key: "Audit Type", get: (g, c) => c?.auditType || "" },
+  { key: "Category", get: (g, c) => c?.category || "" },
+  { key: "Question", get: (g, c) => c?.question || "" },
+  { key: "Legal Reference", get: (g, c) => c?.legalReference || "" },
+  { key: "Audit Guidance", get: (g) => g.auditGuidance || "" },
+  { key: "NC Criteria", get: (g) => g.ncCriteria || "" },
+  { key: "Root Causes", get: (g) => g.rootCauses || "" },
+  { key: "Recommendation", get: (g) => g.recommendation || "" },
+];
+
+function auditGuidanceRows(list, checklistById) {
+  return list.map((g) => {
+    const c = checklistById.get(g.checklistId);
+    return Object.fromEntries(AUDIT_GUIDANCE_COLUMNS.map((col) => [col.key, col.get(g, c)]));
+  });
+}
+
+function exportAuditGuidance(list, checklistById) {
+  exportExcel(auditGuidanceRows(list, checklistById), "Audit Guidance", `audit-guidance-${todayISO()}.xlsx`);
+}
+
+function exportAuditGuidancePdf(list, checklistById) {
+  exportPdf(
+    "Audit Guidance",
+    auditGuidanceRows(list, checklistById),
+    AUDIT_GUIDANCE_COLUMNS.map((col) => ({ key: col.key, label: col.key }))
+  );
+}
+
+// Imported rows carry the checklist's own fields alongside the guidance
+// fields, so a single spreadsheet can populate both in one go: each row is
+// matched to an existing checklist question by Question No. (falling back
+// to an exact Question match), and a new checklist question is created on
+// the fly for anything that doesn't already exist.
+async function parseAuditGuidanceExcel(file, existingChecklist) {
+  const buf = await file.arrayBuffer();
+  const wb = XLSX.read(buf, { type: "array" });
+  const sheet = wb.Sheets[wb.SheetNames[0]];
+  const rows = XLSX.utils.sheet_to_json(sheet, { defval: "" });
+
+  const newChecklistItems = [];
+  const byQuestionNo = new Map(existingChecklist.map((c) => [String(c.questionNo || "").trim().toLowerCase(), c]));
+  const findByQuestion = (question) =>
+    existingChecklist.find((c) => c.question.trim().toLowerCase() === question.toLowerCase())
+    || newChecklistItems.find((c) => c.question.trim().toLowerCase() === question.toLowerCase());
+
+  const guidanceItems = [];
+  for (const row of rows) {
+    const questionNo = String(row["Question No."] ?? row["Question No"] ?? "").trim();
+    const question = String(row["Question"] ?? "").trim();
+    if (!questionNo && !question) continue;
+
+    const category = CAP_CLUSTERS.includes(row["Category"]) ? row["Category"] : CAP_CLUSTERS[CAP_CLUSTERS.length - 1];
+    const legalReference = String(row["Legal Reference"] ?? "").trim();
+    const auditType = AUDIT_TYPES.includes(row["Audit Type"]) ? row["Audit Type"] : "";
+
+    const key = questionNo.toLowerCase();
+    let checklistItem = (key && byQuestionNo.get(key)) || (question && findByQuestion(question));
+    if (!checklistItem) {
+      checklistItem = { id: uid("aq"), questionNo, question, category, legalReference, auditType };
+      newChecklistItems.push(checklistItem);
+      if (key) byQuestionNo.set(key, checklistItem);
+    }
+
+    guidanceItems.push({
+      id: uid("ag"),
+      checklistId: checklistItem.id,
+      auditGuidance: String(row["Audit Guidance"] ?? "").trim(),
+      ncCriteria: String(row["NC Criteria"] ?? "").trim(),
+      rootCauses: String(row["Root Causes"] ?? "").trim(),
+      recommendation: String(row["Recommendation"] ?? "").trim(),
+    });
+  }
+  return { newChecklistItems, guidanceItems };
+}
+
+function AuditGuidanceView({ ctx }) {
+  const { data } = ctx;
+  const [q, setQ] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState("");
+  const [auditTypeFilter, setAuditTypeFilter] = useState("");
+  const [form, setForm] = useState(null);
+  const [importMsg, setImportMsg] = useState("");
+  const [importError, setImportError] = useState("");
+  const fileInputRef = useRef(null);
+  const canEdit = hasPerm(ctx, "assessment", "edit");
+
+  const checklistById = useMemo(() => new Map(data.auditChecklists.map((c) => [c.id, c])), [data.auditChecklists]);
+
+  const enriched = (data.auditGuidance || [])
+    .map((g) => ({ ...g, checklist: checklistById.get(g.checklistId) }))
+    .filter((g) => g.checklist); // defensive: drop any orphaned row whose checklist question no longer exists
+
+  const sorted = [...enriched].sort((a, b) =>
+    (a.checklist.questionNo || "").localeCompare(b.checklist.questionNo || "", undefined, { numeric: true })
+    || (a.checklist.category || "").localeCompare(b.checklist.category || "")
+  );
+  const filtered = sorted
+    .filter((g) => !categoryFilter || g.checklist.category === categoryFilter)
+    .filter((g) => !auditTypeFilter || g.checklist.auditType === auditTypeFilter)
+    .filter((g) => {
+      const c = g.checklist;
+      return `${c.questionNo || ""} ${c.question} ${c.category || ""} ${c.legalReference || ""} ${c.auditType || ""} ${g.auditGuidance || ""} ${g.ncCriteria || ""} ${g.rootCauses || ""} ${g.recommendation || ""}`
+        .toLowerCase()
+        .includes(q.toLowerCase());
+    });
+
+  const onImportFile = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImportMsg("");
+    setImportError("");
+    try {
+      const { newChecklistItems, guidanceItems } = await parseAuditGuidanceExcel(file, data.auditChecklists);
+      if (guidanceItems.length === 0) {
+        setImportError("No valid rows found. Expected columns: Question No., Audit Type, Category, Question, Legal Reference, Audit Guidance, NC Criteria, Root Causes, Recommendation.");
+      } else {
+        if (newChecklistItems.length > 0) {
+          ctx.update("auditChecklists", (prev) => [...prev, ...newChecklistItems]);
+        }
+        ctx.update("auditGuidance", (prev) => [...(prev || []), ...guidanceItems]);
+        setImportMsg(
+          `Imported ${guidanceItems.length} guidance row${guidanceItems.length === 1 ? "" : "s"}`
+          + (newChecklistItems.length ? ` (added ${newChecklistItems.length} new checklist question${newChecklistItems.length === 1 ? "" : "s"}).` : ".")
+        );
+      }
+    } catch {
+      setImportError("Couldn't read that file — make sure it's a valid .xlsx or .xls file.");
+    } finally {
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
+
+  return (
+    <div>
+      <div style={{ padding: "0 18px 10px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <span style={{ fontSize: 12.5, color: T.muted }}>{filtered.length} of {sorted.length} guidance entries</span>
+        {canEdit && <Btn small onClick={() => setForm({})}><Plus size={15} />New</Btn>}
+      </div>
+      <div style={{ display: "flex", gap: 8, padding: "0 18px 10px" }}>
+        {canEdit && <Btn variant="ghost" small onClick={() => fileInputRef.current?.click()}><Upload size={13} /> Import Excel</Btn>}
+        <Btn variant="ghost" small onClick={() => exportAuditGuidance(filtered, checklistById)}><Download size={13} /> Export Excel</Btn>
+        <Btn variant="ghost" small onClick={() => exportAuditGuidancePdf(filtered, checklistById)}><Printer size={13} /> Export PDF</Btn>
+        {canEdit && <input ref={fileInputRef} type="file" accept=".xlsx,.xls" onChange={onImportFile} style={{ display: "none" }} />}
+      </div>
+      {importMsg && <div style={{ padding: "0 18px 8px", fontSize: 12, color: T.green, fontWeight: 600 }}>{importMsg}</div>}
+      {importError && <div style={{ padding: "0 18px 8px", fontSize: 12, color: T.red, fontWeight: 600 }}>{importError}</div>}
+      <SearchBar value={q} onChange={setQ} placeholder="Search question no., question, category, guidance, NC criteria…" />
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, padding: "0 18px 10px" }}>
+        <Select value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}>
+          <option value="">All categories</option>
+          {CAP_CLUSTERS.map((cl) => <option key={cl} value={cl}>{cl}</option>)}
+        </Select>
+        <Select value={auditTypeFilter} onChange={(e) => setAuditTypeFilter(e.target.value)}>
+          <option value="">All audit types</option>
+          {AUDIT_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+        </Select>
+      </div>
+      <div style={{ padding: "10px 18px" }}>
+        {filtered.length === 0 && <EmptyState icon={BookOpen} color={MODULE_COLORS.assessment} title="No audit guidance" hint="Link guidance, NC criteria, root causes and a recommendation to a checklist question." />}
+        {filtered.length > 0 && (
+          <div style={{ overflowX: "auto", border: `1px solid ${T.border}`, borderRadius: 12 }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+              <thead>
+                <tr style={{ background: T.bg }}>
+                  <th style={checklistThStyle}>Question No.</th>
+                  <th style={checklistThStyle}>Audit Type</th>
+                  <th style={checklistThStyle}>Category</th>
+                  <th style={checklistThStyle}>Question</th>
+                  <th style={checklistThStyle}>Legal Reference</th>
+                  <th style={checklistThStyle}>Audit Guidance</th>
+                  <th style={checklistThStyle}>NC Criteria</th>
+                  <th style={checklistThStyle}>Root Causes</th>
+                  <th style={checklistThStyle}>Recommendation</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((g) => (
+                  <tr key={g.id} onClick={canEdit ? () => setForm(g) : undefined} style={{ borderTop: `1px solid ${T.border}`, background: T.surface, cursor: canEdit ? "pointer" : "default" }}>
+                    <td style={{ ...checklistTdStyle, color: T.ink2, fontWeight: 700, whiteSpace: "nowrap" }}>{g.checklist.questionNo || "—"}</td>
+                    <td style={{ ...checklistTdStyle, whiteSpace: "nowrap" }}>{g.checklist.auditType ? <Pill tone="blue">{g.checklist.auditType}</Pill> : <span style={{ color: T.muted }}>All types</span>}</td>
+                    <td style={{ ...checklistTdStyle, whiteSpace: "nowrap" }}>{g.checklist.category ? <Pill tone="cyan">{g.checklist.category}</Pill> : <span style={{ color: T.muted }}>—</span>}</td>
+                    <td style={{ ...checklistTdStyle, color: T.ink, minWidth: 200 }}>{g.checklist.question}</td>
+                    <td style={{ ...checklistTdStyle, color: g.checklist.legalReference ? T.ink2 : T.muted }}>{g.checklist.legalReference || "—"}</td>
+                    <td style={{ ...checklistTdStyle, color: g.auditGuidance ? T.ink2 : T.muted, minWidth: 200 }}>{g.auditGuidance || "—"}</td>
+                    <td style={{ ...checklistTdStyle, color: g.ncCriteria ? T.ink2 : T.muted, minWidth: 180 }}>{g.ncCriteria || "—"}</td>
+                    <td style={{ ...checklistTdStyle, color: g.rootCauses ? T.ink2 : T.muted, minWidth: 180 }}>{g.rootCauses || "—"}</td>
+                    <td style={{ ...checklistTdStyle, color: g.recommendation ? T.ink2 : T.muted, minWidth: 180 }}>{g.recommendation || "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+      {form && <AuditGuidanceForm initial={form} ctx={ctx} onClose={() => setForm(null)} />}
+    </div>
+  );
+}
+
+function AuditGuidanceForm({ initial, ctx, onClose }) {
+  const { data, update } = ctx;
+  const sortedChecklist = [...data.auditChecklists].sort((a, b) =>
+    (a.questionNo || "").localeCompare(b.questionNo || "", undefined, { numeric: true })
+  );
+  const [g, setG] = useState({
+    checklistId: sortedChecklist[0]?.id || "",
+    auditGuidance: "", ncCriteria: "", rootCauses: "", recommendation: "",
+    ...initial,
+  });
+  const linked = data.auditChecklists.find((c) => c.id === g.checklistId);
+
+  const save = () => {
+    if (!g.checklistId) return;
+    update("auditGuidance", (prev) => g.id && (prev || []).some((x) => x.id === g.id)
+      ? prev.map((x) => (x.id === g.id ? g : x))
+      : [...(prev || []), { ...g, id: uid("ag") }]);
+    onClose();
+  };
+  const remove = () => { update("auditGuidance", (prev) => (prev || []).filter((x) => x.id !== g.id)); onClose(); };
+
+  return (
+    <Sheet title={initial.id ? "Edit audit guidance" : "New audit guidance"} onClose={onClose}>
+      <Field label="Checklist question">
+        <Select value={g.checklistId} onChange={(e) => setG({ ...g, checklistId: e.target.value })}>
+          {sortedChecklist.length === 0 && <option value="">No checklist questions yet</option>}
+          {sortedChecklist.map((c) => (
+            <option key={c.id} value={c.id}>{c.questionNo ? `${c.questionNo} — ` : ""}{c.question}</option>
+          ))}
+        </Select>
+      </Field>
+      {linked && (
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 4 }}>
+          <Field label="Audit type"><div style={{ fontSize: 13, padding: "8px 0" }}>{linked.auditType ? <Pill tone="blue">{linked.auditType}</Pill> : <span style={{ color: T.muted }}>All types</span>}</div></Field>
+          <Field label="Category"><div style={{ fontSize: 13, padding: "8px 0" }}>{linked.category ? <Pill tone="cyan">{linked.category}</Pill> : <span style={{ color: T.muted }}>—</span>}</div></Field>
+        </div>
+      )}
+      {linked && (
+        <div style={{ marginBottom: 4 }}>
+          <Field label="Legal reference"><div style={{ fontSize: 13, color: linked.legalReference ? T.ink2 : T.muted, padding: "8px 0" }}>{linked.legalReference || "—"}</div></Field>
+        </div>
+      )}
+      <Field label="Audit guidance"><TextArea rows={3} value={g.auditGuidance} onChange={(e) => setG({ ...g, auditGuidance: e.target.value })} placeholder="How auditors should assess this question…" /></Field>
+      <Field label="NC criteria"><TextArea rows={2} value={g.ncCriteria} onChange={(e) => setG({ ...g, ncCriteria: e.target.value })} placeholder="What counts as a non-conformance…" /></Field>
+      <Field label="Root causes"><TextArea rows={2} value={g.rootCauses} onChange={(e) => setG({ ...g, rootCauses: e.target.value })} placeholder="Typical root causes…" /></Field>
+      <Field label="Recommendation"><TextArea rows={2} value={g.recommendation} onChange={(e) => setG({ ...g, recommendation: e.target.value })} placeholder="Recommended corrective action…" /></Field>
       <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
         {initial.id && hasPerm(ctx, "assessment", "delete") && <Btn variant="danger" onClick={remove}><Trash2 size={15} /> Delete</Btn>}
         <div style={{ flex: 1 }} />
@@ -2679,6 +3072,386 @@ function SelfAssessmentDetail({ id, ctx, onBack }) {
           <Btn variant="ghost" onClick={reopen}>Return to factory</Btn>
           <div style={{ flex: 1 }} />
           <Btn onClick={markReviewed}>Mark reviewed</Btn>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* --- Audit Tool: conduct the real audit, walking through checklist
+   questions with a status, findings, evidence and a rating — the
+   Recommendation shown per question is looked up live from Audit
+   Guidance by Question No. rather than copied, same reasoning as
+   Audit Guidance's own link back to Audit Checklist. --- */
+function auditToolStatusTone(status) {
+  return status === "C" ? "green" : status === "NC" ? "red" : status === "N/A" ? "muted" : "amber";
+}
+function auditToolRatingTone(rating) {
+  return rating === "Zero Tolerance" ? "red" : rating === "Critical" ? "red" : rating === "Major" ? "amber" : "muted";
+}
+
+// A per-question accent, cycled by position in the list, so a long run of
+// question cards is easy to tell apart at a glance while scrolling — purely
+// a visual index, unrelated to status/rating (which keep their own red/
+// amber/green meaning via auditToolStatusTone/auditToolRatingTone above, so
+// red is deliberately left out of this cycle to avoid implying "NC").
+const AUDIT_TOOL_QUESTION_COLORS = [
+  { line: T.accent, bg: T.accentSoft },
+  { line: T.blue, bg: T.blueSoft },
+  { line: T.purple, bg: T.purpleSoft },
+  { line: T.amber, bg: T.amberSoft },
+  { line: T.rose, bg: T.roseSoft },
+  { line: T.cyan, bg: T.cyanSoft },
+  { line: T.brown, bg: T.brownSoft },
+  { line: T.green, bg: T.greenSoft },
+  { line: T.slate, bg: T.slateSoft },
+];
+
+function EvidenceThumb({ item, onRemove }) {
+  return (
+    <div style={{ position: "relative", width: 60, height: 60 }}>
+      {item.kind === "image" ? (
+        <img src={item.dataUrl} alt={item.name} style={{ width: 60, height: 60, objectFit: "cover", borderRadius: 8, border: `1px solid ${T.border}` }} />
+      ) : (
+        <a href={item.dataUrl} download={item.name} title={item.name} style={{
+          width: 60, height: 60, borderRadius: 8, border: `1px solid ${T.border}`, background: T.bg,
+          display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 2, textDecoration: "none", padding: 4, boxSizing: "border-box",
+        }}>
+          <FileText size={16} color={T.muted} />
+          <span style={{ fontSize: 8, color: T.muted, maxWidth: 52, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.name}</span>
+        </a>
+      )}
+      {onRemove && (
+        <button onClick={onRemove} type="button" style={{
+          position: "absolute", top: -6, right: -6, width: 18, height: 18, borderRadius: 999,
+          background: T.red, border: "2px solid #fff", color: "#fff", display: "grid", placeItems: "center", cursor: "pointer",
+        }}><X size={10} /></button>
+      )}
+    </div>
+  );
+}
+
+function AuditToolView({ ctx }) {
+  const { data } = ctx;
+  const [companyFilter, setCompanyFilter] = useState("");
+  const [form, setForm] = useState(null);
+  const canEdit = hasPerm(ctx, "assessment", "edit");
+
+  const sorted = [...(data.auditTool || [])].filter((a) => inScope(ctx, a.companyId)).sort((a, b) => (b.auditDate || "").localeCompare(a.auditDate || ""));
+  const filtered = sorted.filter((a) => !companyFilter || a.companyId === companyFilter);
+
+  return (
+    <div>
+      <div style={{ padding: "0 18px 10px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <span style={{ fontSize: 12.5, color: T.muted }}>{filtered.length} of {sorted.length} audits</span>
+        {canEdit && <Btn small onClick={() => setForm({})}><Plus size={15} />Start audit</Btn>}
+      </div>
+      <div style={{ padding: "0 18px 10px" }}>
+        <Select value={companyFilter} onChange={(e) => setCompanyFilter(e.target.value)}>
+          <option value="">All factories</option>
+          {ctx.visibleCompanies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+        </Select>
+      </div>
+      <div style={{ padding: "0 18px" }}>
+        {filtered.length === 0 && <EmptyState icon={ClipboardCheck} color={MODULE_COLORS.assessment} title="No audits started" hint="Start an audit to walk through checklist questions with findings, evidence and a rating." />}
+        {filtered.map((a) => {
+          const co = data.companies.find((c) => c.id === a.companyId);
+          const rows = a.questions || [];
+          const assessed = rows.filter((r) => r.status).length;
+          const ncCount = rows.filter((r) => r.status === "NC").length;
+          return (
+            <Row key={a.id} onClick={() => ctx.setDetail({ type: "auditTool", id: a.id })} left={<ClipboardCheck size={16} color={T.amber} />}
+              title={co?.name || "Unassigned"} sub={`${fmtDate(a.auditDate)} · ${a.auditType || "—"} · ${assessed}/${rows.length} assessed${ncCount ? ` · ${ncCount} NC` : ""}`}
+              right={<Pill tone={a.status === "Completed" ? "green" : "amber"}>{a.status || "In Progress"}</Pill>} />
+          );
+        })}
+      </div>
+      {form && <AuditToolForm ctx={ctx} onClose={() => setForm(null)} />}
+    </div>
+  );
+}
+
+function AuditToolForm({ ctx, onClose }) {
+  const { data, update } = ctx;
+  const [companyId, setCompanyId] = useState(ctx.visibleCompanies[0]?.id || "");
+  const [auditDate, setAuditDate] = useState(todayISO());
+  const [auditType, setAuditType] = useState(AUDIT_TYPES[0]);
+
+  // Only questions tagged for this audit type (or left untagged, meaning
+  // "applies to any audit type") are eligible — picking a different audit
+  // type re-scopes the list rather than always showing every question ever
+  // added to the checklist.
+  const eligible = useMemo(
+    () => data.auditChecklists.filter((q) => !q.auditType || q.auditType === auditType),
+    [data.auditChecklists, auditType]
+  );
+  const [selectedIds, setSelectedIds] = useState(() => new Set(eligible.map((q) => q.id)));
+
+  // Re-select "all eligible" every time the audit type changes, so the
+  // picker always starts from a sensible default for the newly chosen type
+  // instead of carrying over a selection built for a different type.
+  useEffect(() => {
+    setSelectedIds(new Set(eligible.map((q) => q.id)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [auditType]);
+
+  const toggle = (id) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const save = () => {
+    if (!companyId || selectedIds.size === 0) return;
+    const questions = data.auditChecklists.filter((q) => selectedIds.has(q.id))
+      .map((q) => ({ questionId: q.id, questionNo: q.questionNo, question: q.question, category: q.category, legalReference: q.legalReference, auditType: q.auditType || "", status: "", findings: "", rating: "" }));
+    const record = { id: uid("at"), companyId, auditDate, auditType, status: "In Progress", questions };
+    update("auditTool", (prev) => [...(prev || []), record]);
+    onClose();
+  };
+
+  return (
+    <Sheet title="Start audit" onClose={onClose}>
+      <Field label="Factory / Company">
+        <Select value={companyId} onChange={(e) => setCompanyId(e.target.value)}>
+          {ctx.visibleCompanies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+        </Select>
+      </Field>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+        <Field label="Audit date"><TextInput type="date" value={auditDate} onChange={(e) => setAuditDate(e.target.value)} /></Field>
+        <Field label="Audit type">
+          <Select value={auditType} onChange={(e) => setAuditType(e.target.value)}>
+            {AUDIT_TYPES.map((t) => <option key={t}>{t}</option>)}
+          </Select>
+        </Field>
+      </div>
+      <Field label={`Checklist questions to include (${selectedIds.size}/${eligible.length})`}>
+        <div style={{ border: `1px solid ${T.border}`, borderRadius: 10, maxHeight: 260, overflowY: "auto" }}>
+          {eligible.length === 0 && (
+            <div style={{ padding: 12, fontSize: 12.5, color: T.muted }}>
+              {data.auditChecklists.length === 0
+                ? "No checklist questions exist yet — add some in Audit Checklist first."
+                : `No checklist questions are tagged for "${auditType}" — tag some in Audit Checklist, or leave a question's audit type blank to include it in every audit type.`}
+            </div>
+          )}
+          {eligible.map((qz) => (
+            <label key={qz.id} style={{ display: "flex", gap: 8, alignItems: "flex-start", padding: "9px 10px", borderTop: `1px solid ${T.border}`, cursor: "pointer" }}>
+              <input type="checkbox" checked={selectedIds.has(qz.id)} onChange={() => toggle(qz.id)} style={{ marginTop: 3 }} />
+              <span style={{ fontSize: 12.5, color: T.ink2 }}>
+                {qz.questionNo && <b style={{ color: T.ink }}>{qz.questionNo} · </b>}{qz.question}
+              </span>
+            </label>
+          ))}
+        </div>
+      </Field>
+      <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
+        <div style={{ flex: 1 }} />
+        <Btn variant="ghost" onClick={onClose}>Cancel</Btn>
+        <Btn onClick={save} disabled={!companyId || selectedIds.size === 0}>Start audit</Btn>
+      </div>
+    </Sheet>
+  );
+}
+
+function AuditToolDetail({ id, ctx, onBack }) {
+  const { data, update } = ctx;
+  const at = data.auditTool.find((x) => x.id === id);
+  const [rows, setRows] = useState(() => (at?.questions || []).map((q) => ({ ...q })));
+  const [evidenceByQ, setEvidenceByQ] = useState({});
+  const [evidenceError, setEvidenceError] = useState("");
+  const [uploadingQid, setUploadingQid] = useState(null);
+  const fileInputRef = useRef(null);
+  const pendingQidRef = useRef(null);
+
+  const guidanceByChecklistId = useMemo(
+    () => new Map((data.auditGuidance || []).map((g) => [g.checklistId, g])),
+    [data.auditGuidance]
+  );
+
+  useEffect(() => {
+    if (!id) return;
+    (async () => {
+      try {
+        const res = await window.storage.get(`attachments:${id}`, true);
+        setEvidenceByQ(res ? JSON.parse(res.value) : {});
+      } catch {
+        setEvidenceByQ({});
+      }
+    })();
+  }, [id]);
+
+  if (!at) return null;
+  const co = data.companies.find((c) => c.id === at.companyId);
+  const canEdit = hasPerm(ctx, "assessment", "edit");
+  const canFill = canEdit && at.status !== "Completed";
+
+  const setRow = (qId, patch) => setRows((prev) => prev.map((r) => (r.questionId === qId ? { ...r, ...patch } : r)));
+
+  const persistEvidence = async (next) => {
+    setEvidenceByQ(next);
+    try { await window.storage.set(`attachments:${id}`, JSON.stringify(next), true); }
+    catch { setEvidenceError("Evidence saved locally, but failed to upload — try again."); }
+  };
+
+  const openFilePicker = (qId) => {
+    pendingQidRef.current = qId;
+    fileInputRef.current?.click();
+  };
+
+  const onPickEvidence = async (e) => {
+    const files = Array.from(e.target.files || []);
+    const qId = pendingQidRef.current;
+    if (!files.length || !qId) return;
+    setUploadingQid(qId);
+    setEvidenceError("");
+    try {
+      const existing = evidenceByQ[qId] || [];
+      const items = [...existing];
+      for (const f of files) {
+        if (items.length >= 4) { setEvidenceError("Limit is 4 evidence files per question."); break; }
+        try {
+          items.push({ id: uid("ev"), ...(await readEvidenceFile(f)) });
+        } catch (err) {
+          setEvidenceError(err.message || "Couldn't process one of the files.");
+        }
+      }
+      await persistEvidence({ ...evidenceByQ, [qId]: items });
+    } finally {
+      setUploadingQid(null);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
+
+  const removeEvidence = (qId, evId) => {
+    const next = { ...evidenceByQ, [qId]: (evidenceByQ[qId] || []).filter((e) => e.id !== evId) };
+    persistEvidence(next);
+  };
+
+  const saveProgress = () => update("auditTool", (prev) => prev.map((a) => (a.id === at.id ? { ...a, questions: rows } : a)));
+  const markCompleted = () => update("auditTool", (prev) => prev.map((a) => (a.id === at.id ? { ...a, questions: rows, status: "Completed" } : a)));
+  const reopen = () => update("auditTool", (prev) => prev.map((a) => (a.id === at.id ? { ...a, status: "In Progress" } : a)));
+  const remove = async () => {
+    update("auditTool", (prev) => prev.filter((a) => a.id !== at.id));
+    try { await window.storage.delete(`attachments:${id}`, true); } catch {}
+    onBack();
+  };
+
+  const assessedCount = rows.filter((r) => r.status).length;
+  const ncCount = rows.filter((r) => r.status === "NC").length;
+  const criticalCount = rows.filter((r) => r.rating === "Critical" || r.rating === "Zero Tolerance").length;
+
+  return (
+    <div>
+      <div style={{ padding: "14px 18px 0", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <Btn variant="ghost" small onClick={onBack}><ArrowLeft size={14} />All audits</Btn>
+        {hasPerm(ctx, "assessment", "delete") && <Btn variant="danger" small onClick={remove}><Trash2 size={13} />Delete</Btn>}
+      </div>
+      <Header title={co?.name || "Audit"} subtitle={`${fmtDate(at.auditDate)} · ${at.auditType || "—"}`} icon={ClipboardCheck} color={MODULE_COLORS.assessment}
+        action={<Pill tone={at.status === "Completed" ? "green" : "amber"}>{at.status || "In Progress"}</Pill>} />
+      <div style={{ padding: "0 18px" }}>
+        <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 14, padding: 14, display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, fontSize: 13, marginBottom: 4 }}>
+          <div><div style={{ color: T.muted, fontSize: 11.5, fontWeight: 700 }}>ASSESSED</div>{assessedCount} / {rows.length}</div>
+          <div><div style={{ color: T.muted, fontSize: 11.5, fontWeight: 700 }}>NC</div>{ncCount}</div>
+          <div><div style={{ color: T.muted, fontSize: 11.5, fontWeight: 700 }}>CRITICAL / ZERO TOLERANCE</div>{criticalCount}</div>
+        </div>
+      </div>
+      {evidenceError && <div style={{ padding: "0 18px 8px", fontSize: 12, color: T.red, fontWeight: 600 }}>{evidenceError}</div>}
+      <SectionLabel>Questions</SectionLabel>
+      <div style={{ padding: "0 18px" }}>
+        {rows.length === 0 && <EmptyRow text="No checklist questions were included in this audit." />}
+        {rows.map((r, i) => {
+          const guidance = guidanceByChecklistId.get(r.questionId);
+          const evidence = evidenceByQ[r.questionId] || [];
+          const qc = AUDIT_TOOL_QUESTION_COLORS[i % AUDIT_TOOL_QUESTION_COLORS.length];
+          return (
+            <div key={r.questionId} style={{ background: qc.bg, border: `1px solid ${T.border}`, borderLeftWidth: 4, borderLeftColor: qc.line, borderRadius: 12, padding: 14, marginBottom: 10 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+                <span style={{ fontSize: 14, color: T.ink, fontWeight: 700 }}>
+                  <span style={{ display: "inline-block", width: 22, height: 22, borderRadius: 999, background: qc.line, color: "#fff", fontSize: 11, fontWeight: 800, textAlign: "center", lineHeight: "22px", marginRight: 8, verticalAlign: "middle" }}>{i + 1}</span>
+                  {r.questionNo && <b>{r.questionNo} · </b>}{r.question}
+                </span>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                  {r.auditType && <Pill tone="blue">{r.auditType}</Pill>}
+                  {r.category && <Pill tone="cyan">{r.category}</Pill>}
+                </div>
+              </div>
+              {r.legalReference && <div style={{ fontSize: 12, color: T.muted, marginTop: 2 }}>{r.legalReference}</div>}
+
+              {canFill ? (
+                <div style={{ marginTop: 10 }}>
+                  <div style={{ display: "flex", gap: 6, marginBottom: 8, flexWrap: "wrap" }}>
+                    {AUDIT_TOOL_QUESTION_STATUSES.map((s) => (
+                      <button key={s} onClick={() => setRow(r.questionId, { status: s, rating: s === "NC" ? r.rating : "" })} style={{
+                        padding: "7px 14px", borderRadius: 999, border: `1px solid ${r.status === s ? T.accent : T.border}`,
+                        background: r.status === s ? T.accent : T.surface, color: r.status === s ? "#fff" : T.ink2,
+                        fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit",
+                      }}>{s}</button>
+                    ))}
+                  </div>
+                  <Field label="Findings">
+                    <TextArea rows={5} value={r.findings} onChange={(e) => setRow(r.questionId, { findings: e.target.value })} placeholder="Describe what was observed during the audit…" />
+                  </Field>
+                  {r.status === "NC" && (
+                    <div style={{ marginTop: 8 }}>
+                      <Select value={r.rating} onChange={(e) => setRow(r.questionId, { rating: e.target.value })}>
+                        <option value="">Rating…</option>
+                        {AUDIT_TOOL_RATINGS.map((rt) => <option key={rt}>{rt}</option>)}
+                      </Select>
+                    </div>
+                  )}
+                  <div style={{ marginTop: 10 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: T.muted, marginBottom: 6 }}>EVIDENCE ({evidence.length}/4)</div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                      {evidence.map((ev) => <EvidenceThumb key={ev.id} item={ev} onRemove={() => removeEvidence(r.questionId, ev.id)} />)}
+                      {evidence.length < 4 && (
+                        <button type="button" onClick={() => openFilePicker(r.questionId)} disabled={uploadingQid === r.questionId} style={{
+                          width: 60, height: 60, borderRadius: 8, border: `1.5px dashed ${T.border}`, background: T.bg,
+                          display: "grid", placeItems: "center", cursor: "pointer", color: T.muted,
+                        }}>
+                          {uploadingQid === r.questionId ? <span style={{ fontSize: 9 }}>Adding…</span> : <Paperclip size={18} />}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div style={{ marginTop: 8 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                    <Pill tone={auditToolStatusTone(r.status)}>{r.status || "Not assessed"}</Pill>
+                    {r.rating && <Pill tone={auditToolRatingTone(r.rating)}>{r.rating}</Pill>}
+                  </div>
+                  {r.findings && <div style={{ fontSize: 12.5, color: T.ink2, marginTop: 6 }}>{r.findings}</div>}
+                  {evidence.length > 0 && (
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 8 }}>
+                      {evidence.map((ev) => <EvidenceThumb key={ev.id} item={ev} />)}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1px dashed ${T.border}` }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: T.muted, marginBottom: 4 }}>RECOMMENDATION (FROM AUDIT GUIDANCE)</div>
+                <div style={{ fontSize: 12.5, color: guidance?.recommendation ? T.ink2 : T.muted }}>
+                  {guidance?.recommendation || "No guidance available for this question yet — add it in Audit Guidance."}
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <input ref={fileInputRef} type="file" accept="image/*,.pdf,.doc,.docx,.xls,.xlsx" multiple onChange={onPickEvidence} style={{ display: "none" }} />
+      {canFill && (
+        <div style={{ display: "flex", gap: 10, padding: "10px 18px 4px" }}>
+          <Btn variant="ghost" onClick={saveProgress}>Save progress</Btn>
+          <div style={{ flex: 1 }} />
+          <Btn onClick={markCompleted}>Mark completed</Btn>
+        </div>
+      )}
+      {canEdit && at.status === "Completed" && (
+        <div style={{ display: "flex", gap: 10, padding: "10px 18px 4px" }}>
+          <Btn variant="ghost" onClick={reopen}>Reopen audit</Btn>
         </div>
       )}
     </div>
