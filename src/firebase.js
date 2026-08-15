@@ -19,6 +19,7 @@
 
 import { initializeApp, deleteApp } from "firebase/app";
 import { getFirestore } from "firebase/firestore";
+import { getStorage } from "firebase/storage";
 import {
   getAuth,
   signInAnonymously,
@@ -55,6 +56,12 @@ if (missing.length) {
 export const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app);
 export const auth = getAuth(app);
+// PAMS evidence files (docs/pams/ARCHITECTURE.md §4) — a real object-storage
+// bucket, not base64-in-Firestore like the app's existing photo/file
+// attachments, since PAMS's evidence volume would make that pattern hit
+// Firestore's 1 MiB document limit fast. Every Firebase project already has
+// a Storage bucket provisioned, so this needs no new infrastructure.
+export const storage = getStorage(app);
 
 // Resolves once we have a signed-in user (anonymous at boot; real
 // email/password after login). Every Firestore call in storageShim.js

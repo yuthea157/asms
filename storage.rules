@@ -1,0 +1,31 @@
+// Reference Storage rules for PAMS evidence files (docs/pams/
+// ARCHITECTURE.md §4). This is the first thing in ASMS that uses Firebase
+// Storage — everything else in the app stores attachments as base64 data
+// URLs inside Firestore documents instead (see firestore.rules' own header
+// for why PAMS specifically can't use that pattern at its expected
+// volume).
+//
+// Same non-anonymous-write floor as firestore.rules, for the same reason:
+// this app's own role/permission system (who can upload/delete evidence
+// for which factory) lives in application code, not here — see
+// docs/pams/SECURITY.md §5 for the plan to close that gap with custom
+// claims in Phase 8.
+//
+// This file must be manually published via Firebase Console → Storage →
+// Rules (or `firebase deploy --only storage` with the CLI) — editing it
+// here does not change what's actually enforced live.
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /pams-evidence/{allPaths=**} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null
+        && request.auth.token.firebase.sign_in_provider != 'anonymous'
+        // Matches evidence.js's own MAX_EVIDENCE_BYTES cap — enforced here
+        // too, not just client-side, since a malicious client could
+        // otherwise bypass the app's own size check entirely.
+        && request.resource.size < 10 * 1000 * 1000;
+    }
+  }
+}

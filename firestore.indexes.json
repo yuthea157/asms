@@ -1,0 +1,71 @@
+{
+  "indexes": [
+    { "collectionGroup": "pams_actions", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "targetId", "order": "ASCENDING" }, { "fieldPath": "createdAt", "order": "ASCENDING" }
+    ]},
+    { "collectionGroup": "pams_actions", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "factoryId", "order": "ASCENDING" }, { "fieldPath": "dueDate", "order": "ASCENDING" }
+    ]},
+    { "collectionGroup": "pams_advisory_visits", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "factoryId", "order": "ASCENDING" }, { "fieldPath": "visitDate", "order": "DESCENDING" }
+    ]},
+    { "collectionGroup": "pams_assessment_items", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "categoryId", "order": "ASCENDING" }, { "fieldPath": "order", "order": "ASCENDING" }
+    ]},
+    { "collectionGroup": "pams_assessments", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "factoryId", "order": "ASCENDING" }, { "fieldPath": "assessmentDate", "order": "DESCENDING" }
+    ]},
+    { "collectionGroup": "pams_findings", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "factoryId", "order": "ASCENDING" }, { "fieldPath": "createdAt", "order": "DESCENDING" }
+    ]},
+    { "collectionGroup": "pams_findings", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "sourceType", "order": "ASCENDING" }, { "fieldPath": "sourceId", "order": "ASCENDING" }
+    ]},
+    { "collectionGroup": "pams_goals", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "projectId", "order": "ASCENDING" }, { "fieldPath": "createdAt", "order": "ASCENDING" }
+    ]},
+    { "collectionGroup": "pams_issues", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "factoryId", "order": "ASCENDING" }, { "fieldPath": "createdAt", "order": "DESCENDING" }
+    ]},
+    { "collectionGroup": "pams_measurements", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "targetId", "order": "ASCENDING" }, { "fieldPath": "period", "order": "DESCENDING" }
+    ]},
+    { "collectionGroup": "pams_measurements", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "kpiLinkId", "order": "ASCENDING" }, { "fieldPath": "period", "order": "ASCENDING" }
+    ]},
+    { "collectionGroup": "pams_objectives", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "goalId", "order": "ASCENDING" }, { "fieldPath": "createdAt", "order": "ASCENDING" }
+    ]},
+    { "collectionGroup": "pams_projects", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "factoryId", "order": "ASCENDING" }, { "fieldPath": "createdAt", "order": "DESCENDING" }
+    ]},
+    { "collectionGroup": "pams_rating_levels", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "ratingScaleId", "order": "ASCENDING" }, { "fieldPath": "order", "order": "ASCENDING" }
+    ]},
+    { "collectionGroup": "pams_sub_objectives", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "objectiveId", "order": "ASCENDING" }, { "fieldPath": "createdAt", "order": "ASCENDING" }
+    ]},
+    { "collectionGroup": "pams_targets", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "parentType", "order": "ASCENDING" }, { "fieldPath": "parentId", "order": "ASCENDING" }, { "fieldPath": "createdAt", "order": "ASCENDING" }
+    ]},
+    { "collectionGroup": "pams_scores", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "entityType", "order": "ASCENDING" }, { "fieldPath": "entityId", "order": "ASCENDING" }
+    ]},
+    { "collectionGroup": "pams_custom_field_values", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "entityType", "order": "ASCENDING" }, { "fieldPath": "entityId", "order": "ASCENDING" }
+    ]},
+    { "collectionGroup": "pams_custom_field_values", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "entityType", "order": "ASCENDING" }, { "fieldPath": "entityId", "order": "ASCENDING" }, { "fieldPath": "fieldKey", "order": "ASCENDING" }
+    ]},
+    { "collectionGroup": "pams_evidence", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "entityType", "order": "ASCENDING" }, { "fieldPath": "entityId", "order": "ASCENDING" }
+    ]},
+    { "collectionGroup": "pams_tasks", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "actionId", "order": "ASCENDING" }, { "fieldPath": "order", "order": "ASCENDING" }
+    ]},
+    { "collectionGroup": "pams_notifications", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "factoryId", "order": "ASCENDING" }, { "fieldPath": "createdAt", "order": "DESCENDING" }
+    ]}
+  ],
+  "fieldOverrides": []
+}

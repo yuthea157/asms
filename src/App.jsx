@@ -3,69 +3,25 @@ import * as XLSX from "xlsx";
 import logo from "./assets/logo.jpg";
 import { signInEmail, createEmailAccount, sendReset, createAuthUserAsAdmin, changeOwnPassword, changePasswordWithVerification, verifyCurrentPassword, logout as firebaseLogout } from "./firebase.js";
 import {
+  T, MODULE_COLORS, uid, fmtDate, todayISO, DESKTOP_BP, useViewportWidth,
+  hasPerm, defaultPermissions, Pill, IconChip, Field, TextInput, TextArea, Select,
+  Sheet, Btn, EmptyState, Header, SearchBar, SectionLabel, EmptyRow, Row,
+  downloadBlob, exportExcel, exportPdf,
+} from "./ui.jsx";
+import FactoryProfileTab from "./pams/FactoryProfileTab.jsx";
+import FactoryPerformanceOverview from "./pams/FactoryPerformanceOverview.jsx";
+import AssessmentCatalogAdminTab from "./pams/AssessmentCatalogAdminTab.jsx";
+import RiskHeatmap from "./pams/RiskHeatmap.jsx";
+import KpiLibraryAdminTab from "./pams/KpiLibraryAdminTab.jsx";
+import {
   Building2, CalendarClock, ClipboardList, ShieldAlert, Users as UsersIcon,
   FileBarChart, Plus, X, ChevronRight, Search, Clock, AlertTriangle,
   CheckCircle2, Circle, ArrowLeft, Phone, Mail, MapPin,
   Trash2, Pencil, TrendingUp, FileText, LogIn, Paperclip, Image as ImageIcon,
   Download, Printer, Eye, EyeOff, Lock, MessageSquare, Scale, Filter, BookOpen,
   Upload, Settings, Database, GraduationCap, Megaphone, FolderOpen, ShieldCheck,
-  ListChecks, ClipboardCheck, LayoutDashboard, Menu, Briefcase
+  ListChecks, ClipboardCheck, LayoutDashboard, Menu, Briefcase, Factory
 } from "lucide-react";
-
-/* ---------------------------------------------------------------
-   TOKENS
-   Ink        #16323A  primary text / nav shell
-   Accent     #2F7A6D  primary actions, active states (advisory teal)
-   Amber      #C97A2B  non-compliance / attention
-   Red        #B3432B  overdue / danger
-   Green      #3F8B5C  completed / success
-   Bg         #F4F6F5  app background
-   Surface    #FFFFFF  cards
-   Border     #DCE3E1
-----------------------------------------------------------------*/
-
-const T = {
-  ink: "#16323A",
-  ink2: "#3E5761",
-  accent: "#2F7A6D",
-  accentDark: "#215A50",
-  accentSoft: "#E4F0EC",
-  amber: "#C97A2B",
-  amberSoft: "#FBEEE0",
-  red: "#B3432B",
-  redSoft: "#F8E7E2",
-  green: "#3F8B5C",
-  greenSoft: "#E7F2EB",
-  blue: "#3A6EA5",
-  blueSoft: "#E7EEF5",
-  purple: "#7A5AA8",
-  purpleSoft: "#EFE8F5",
-  cyan: "#2E8FA3",
-  cyanSoft: "#E4F2F5",
-  rose: "#B0507A",
-  roseSoft: "#F7E7EF",
-  brown: "#8B6B4A",
-  brownSoft: "#F1EAE1",
-  slate: "#5B6B76",
-  slateSoft: "#E7ECEE",
-  bg: "#F4F6F5",
-  surface: "#FFFFFF",
-  border: "#DCE3E1",
-  muted: "#7C9089",
-};
-
-// One color per module, reused everywhere that module shows up (nav icon,
-// page header icon, empty-state icon) so its identity stays recognizable
-// throughout the app instead of everything being the same monochrome ink.
-const MODULE_COLORS = {
-  dashboard: T.accent, companies: T.blue, visits: T.green, caps: T.amber,
-  advisory: T.purple, assessment: T.cyan, meetings: T.rose, committee: T.blue,
-  training: T.green, grievance: T.red, documents: T.brown,
-  users: T.slate, reports: T.cyan, sysadmin: T.slate, risk: T.red,
-  advisorymgmt: T.purple,
-};
-
-const uid = (p = "id") => `${p}_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -89,29 +45,6 @@ function authErrorMessage(err) {
   if (code === "auth/network-request-failed") return "Network error — check your connection and try again.";
   return err?.message || "Something went wrong. Please try again.";
 }
-const fmtDate = (d) => {
-  if (!d) return "—";
-  const dt = new Date(d + "T00:00:00");
-  if (isNaN(dt)) return d;
-  return dt.toLocaleDateString(undefined, { day: "2-digit", month: "short", year: "numeric" });
-};
-const todayISO = () => new Date().toISOString().slice(0, 10);
-
-// Above this width we switch from the mobile "phone card" chrome (bottom tab
-// bar, bottom sheets) to a desktop layout (persistent sidebar, centered
-// modals) instead of just stretching the same mobile layout wider.
-const DESKTOP_BP = 860;
-
-function useViewportWidth() {
-  const [width, setWidth] = useState(() => (typeof window !== "undefined" ? window.innerWidth : DESKTOP_BP));
-  useEffect(() => {
-    const onResize = () => setWidth(window.innerWidth);
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
-  }, []);
-  return width;
-}
-
 // Downscale + compress an image file to a base64 JPEG so it fits comfortably
 // within the 5MB-per-key storage limit.
 function compressImageFile(file, maxDim = 1100, quality = 0.7) {
@@ -305,6 +238,7 @@ function seedData() {
 const PERMISSION_MODULES = [
   { key: "dashboard", label: "Overview" },
   { key: "companies", label: "Companies" },
+  { key: "pamsFactory", label: "Factory Performance (PAMS)" },
   { key: "advisory", label: "Advisory Cycles" },
   { key: "visits", label: "Advisory Visits" },
   { key: "assessment", label: "Audit Management" },
@@ -319,43 +253,6 @@ const PERMISSION_MODULES = [
   { key: "sysadmin", label: "System Administration" },
 ];
 const CONFIGURABLE_ROLES = ["manager", "officer", "user"];
-
-function defaultPermissions() {
-  const full = { view: true, edit: true, delete: true };
-  const editOnly = { view: true, edit: true, delete: false };
-  const viewOnly = { view: true, edit: false, delete: false };
-  const none = { view: false, edit: false, delete: false };
-  return {
-    manager: {
-      dashboard: viewOnly, companies: full, advisory: full, visits: full, assessment: full, risk: full, caps: full,
-      meetings: editOnly, committee: editOnly, reports: viewOnly, sysadmin: none,
-      training: editOnly, grievance: editOnly, documents: editOnly,
-    },
-    officer: {
-      dashboard: viewOnly, companies: viewOnly, advisory: viewOnly, visits: editOnly, assessment: viewOnly, risk: editOnly, caps: editOnly,
-      meetings: editOnly, committee: viewOnly, reports: viewOnly, sysadmin: none,
-      training: editOnly, grievance: editOnly, documents: editOnly,
-    },
-    user: {
-      dashboard: viewOnly, companies: viewOnly, advisory: viewOnly, visits: viewOnly, assessment: viewOnly, risk: viewOnly, caps: viewOnly,
-      meetings: viewOnly, committee: viewOnly, reports: viewOnly, sysadmin: none,
-      training: viewOnly, grievance: viewOnly, documents: viewOnly,
-    },
-  };
-}
-
-function hasPerm(ctx, moduleKey, action) {
-  if (ctx.role.role === "admin") return true;
-  // Falls back to the coded default when a module is entirely absent from
-  // the live permissions doc — a role that already existed in Firestore
-  // before a module was added won't have that key yet, and "missing" here
-  // must mean "use the sensible default", not "deny": an admin's explicit
-  // choice (even an explicit all-false "none") is a real object and always
-  // wins over the fallback, since ?? only applies when the value is
-  // null/undefined, never for an existing-but-restrictive object.
-  const perms = ctx.data.permissions?.[ctx.role.role]?.[moduleKey] ?? defaultPermissions()[ctx.role.role]?.[moduleKey];
-  return !!(perms && perms[action]);
-}
 
 // Company Users are locked to the single company they're assigned to.
 // Every other role sees everything (scopeCompanyId is null for them).
@@ -482,124 +379,6 @@ function useStore() {
   return { data, ready, update, saveState };
 }
 
-/* ---------------------------------------------------------------
-   SMALL UI PRIMITIVES
-----------------------------------------------------------------*/
-function Pill({ children, tone = "muted" }) {
-  const tones = {
-    muted: { bg: T.border, fg: T.ink2 },
-    accent: { bg: T.accentSoft, fg: T.accentDark },
-    amber: { bg: T.amberSoft, fg: T.amber },
-    red: { bg: T.redSoft, fg: T.red },
-    green: { bg: T.greenSoft, fg: T.green },
-    blue: { bg: T.blueSoft, fg: T.blue },
-    purple: { bg: T.purpleSoft, fg: T.purple },
-    cyan: { bg: T.cyanSoft, fg: T.cyan },
-    rose: { bg: T.roseSoft, fg: T.rose },
-    brown: { bg: T.brownSoft, fg: T.brown },
-    slate: { bg: T.slateSoft, fg: T.slate },
-  };
-  const c = tones[tone] || tones.muted;
-  return (
-    <span style={{ background: c.bg, color: c.fg, fontSize: 11.5, fontWeight: 700, padding: "3px 9px", borderRadius: 999, letterSpacing: 0.2 }}>
-      {children}
-    </span>
-  );
-}
-
-// A colored circular backdrop behind an icon, used everywhere a module's
-// icon appears (nav, header, empty states) so it reads as a colorful badge
-// rather than a flat monochrome glyph. The ".icon-chip" class picks up the
-// hover/press motion defined once in Shell's injected <style>.
-function IconChip({ icon: Icon, color = T.accent, size = 34, iconSize = 17, strokeWidth, background, style }) {
-  return (
-    <span className="icon-chip" style={{
-      display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
-      width: size, height: size, borderRadius: size * 0.32,
-      background: background !== undefined ? background : `${color}1A`,
-      ...style,
-    }}>
-      <Icon size={iconSize} color={color} strokeWidth={strokeWidth} />
-    </span>
-  );
-}
-
-function Field({ label, children, full }) {
-  return (
-    <label style={{ display: "block", marginBottom: 14, gridColumn: full ? "1 / -1" : undefined }}>
-      <span style={{ display: "block", fontSize: 12.5, fontWeight: 700, color: T.ink2, marginBottom: 6, letterSpacing: 0.2 }}>{label}</span>
-      {children}
-    </label>
-  );
-}
-
-const inputStyle = {
-  width: "100%", boxSizing: "border-box", padding: "10px 12px", borderRadius: 10,
-  border: `1px solid ${T.border}`, fontSize: 15, fontFamily: "inherit", color: T.ink,
-  background: "#FCFDFD", outline: "none",
-};
-
-function TextInput(props) { return <input {...props} style={{ ...inputStyle, ...(props.style || {}) }} />; }
-function TextArea(props) { return <textarea {...props} rows={props.rows || 3} style={{ ...inputStyle, resize: "vertical", ...(props.style || {}) }} />; }
-function Select({ children, ...props }) { return <select {...props} style={{ ...inputStyle, ...(props.style || {}) }}>{children}</select>; }
-
-function Sheet({ title, onClose, children }) {
-  const width = useViewportWidth();
-  const isDesktop = width >= DESKTOP_BP;
-  return (
-    <div style={{
-      position: "fixed", inset: 0, zIndex: 60, display: "flex",
-      alignItems: isDesktop ? "center" : "flex-end", justifyContent: isDesktop ? "center" : "stretch",
-      padding: isDesktop ? 24 : 0,
-    }}>
-      <div onClick={onClose} style={{ position: "absolute", inset: 0, background: "rgba(22,50,58,0.45)" }} />
-      <div style={{
-        position: "relative", background: T.surface, width: isDesktop ? "min(600px, 100%)" : "100%",
-        maxHeight: isDesktop ? "88vh" : "92vh",
-        borderRadius: isDesktop ? 20 : "20px 20px 0 0", display: "flex", flexDirection: "column",
-        animation: isDesktop ? "fadeScaleIn .18s ease-out" : "slideUp .22s ease-out",
-        boxShadow: isDesktop ? "0 20px 60px rgba(0,0,0,0.25)" : "0 -8px 30px rgba(0,0,0,0.18)",
-      }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 18px", borderBottom: `1px solid ${T.border}` }}>
-          <h3 style={{ margin: 0, fontSize: 17, fontFamily: "'Space Grotesk', sans-serif", color: T.ink }}>{title}</h3>
-          <button onClick={onClose} aria-label="Close" style={{ background: T.bg, border: "none", borderRadius: 999, width: 32, height: 32, display: "grid", placeItems: "center", cursor: "pointer" }}>
-            <X size={18} color={T.ink2} />
-          </button>
-        </div>
-        <div style={{ padding: 18, overflowY: "auto" }}>{children}</div>
-      </div>
-    </div>
-  );
-}
-
-function Btn({ children, onClick, variant = "primary", full, type = "button", small, disabled }) {
-  const styles = {
-    primary: { background: T.accent, color: "#fff", border: "none" },
-    ghost: { background: "transparent", color: T.ink2, border: `1px solid ${T.border}` },
-    danger: { background: T.redSoft, color: T.red, border: "none" },
-  };
-  return (
-    <button type={type} onClick={onClick} disabled={disabled} style={{
-      ...styles[variant], width: full ? "100%" : undefined, padding: small ? "8px 12px" : "11px 16px",
-      borderRadius: 10, fontSize: small ? 13 : 15, fontWeight: 700, cursor: disabled ? "not-allowed" : "pointer",
-      display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6,
-      fontFamily: "inherit", opacity: disabled ? 0.6 : 1,
-    }}>
-      {children}
-    </button>
-  );
-}
-
-function EmptyState({ icon: Icon, title, hint, color = T.muted }) {
-  return (
-    <div style={{ textAlign: "center", padding: "48px 20px", color: T.muted }}>
-      <IconChip icon={Icon} color={color} size={54} iconSize={26} strokeWidth={1.6} style={{ margin: "0 auto 12px" }} />
-      <div style={{ fontWeight: 700, color: T.ink2, fontSize: 15 }}>{title}</div>
-      <div style={{ fontSize: 13, marginTop: 4 }}>{hint}</div>
-    </div>
-  );
-}
-
 function RestrictedView({ goto }) {
   return (
     <div style={{ textAlign: "center", padding: "70px 26px" }}>
@@ -607,31 +386,6 @@ function RestrictedView({ goto }) {
       <div style={{ fontWeight: 700, color: T.ink2, fontSize: 15 }}>You don't have access to this section</div>
       <div style={{ fontSize: 13, color: T.muted, marginTop: 4, marginBottom: 18 }}>Ask an administrator to grant permission from the Permission Matrix.</div>
       <Btn onClick={goto}>Back to Overview</Btn>
-    </div>
-  );
-}
-
-function Header({ title, subtitle, action, icon, color = T.accent }) {
-  return (
-    <div style={{ padding: "18px 18px 4px", display: "flex", alignItems: "flex-start", justifyContent: "space-between" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-        {icon && <IconChip icon={icon} color={color} size={40} iconSize={20} strokeWidth={2} />}
-        <div>
-          <h1 style={{ margin: 0, fontFamily: "'Space Grotesk', sans-serif", fontSize: 23, color: T.ink }}>{title}</h1>
-          {subtitle && <div style={{ fontSize: 13, color: T.muted, marginTop: 2 }}>{subtitle}</div>}
-        </div>
-      </div>
-      {action}
-    </div>
-  );
-}
-
-function SearchBar({ value, onChange, placeholder }) {
-  return (
-    <div style={{ display: "flex", alignItems: "center", gap: 8, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: "9px 12px", margin: "12px 18px 6px" }}>
-      <Search size={16} color={T.muted} />
-      <input value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder}
-        style={{ border: "none", outline: "none", fontSize: 14.5, flex: 1, fontFamily: "inherit", color: T.ink, background: "transparent" }} />
     </div>
   );
 }
@@ -737,6 +491,7 @@ export default function App() {
     { key: "dashboard", label: assignedDashboard ? assignedDashboard.name : "Overview", icon: TrendingUp, perm: "dashboard", color: MODULE_COLORS.dashboard },
     { key: "companies", label: "Companies", icon: Building2, perm: "companies", color: MODULE_COLORS.companies },
     ...(canViewAdvisoryMgmt ? [{ key: advisoryMgmtLandingKey, matchKeys: ADVISORY_MGMT_KEYS, label: "Advisory Management", icon: Briefcase, color: MODULE_COLORS.advisorymgmt }] : []),
+    { key: "pamsFactory", label: "Factory Performance", icon: Factory, perm: "pamsFactory", color: MODULE_COLORS.pamsFactory },
   ].filter((n) => !n.perm || hasPerm(ctx, n.perm, "view"));
   const MORE_NAV = [
     { key: "assessment", label: "Audit Management", icon: ClipboardCheck, perm: "assessment", color: MODULE_COLORS.assessment },
@@ -771,6 +526,7 @@ export default function App() {
       : <Dashboard ctx={ctx} goto={goto} />;
   }
   else if (tab === "companies" && hasPerm(ctx, "companies", "view")) Body = <CompaniesView ctx={ctx} />;
+  else if (tab === "pamsFactory" && hasPerm(ctx, "pamsFactory", "view")) Body = <FactoryPerformanceOverview ctx={ctx} />;
   else if (tab === "visits" && hasPerm(ctx, "visits", "view")) Body = <AdvisoryManagementView ctx={ctx} tab={tab} setTab={setTab} />;
   else if (tab === "caps" && hasPerm(ctx, "caps", "view")) Body = <AdvisoryManagementView ctx={ctx} tab={tab} setTab={setTab} />;
   else if (tab === "advisory" && hasPerm(ctx, "advisory", "view")) Body = <AdvisoryManagementView ctx={ctx} tab={tab} setTab={setTab} />;
@@ -1550,28 +1306,6 @@ function StatCard({ label, value, icon: Icon, tone, onClick }) {
   );
 }
 
-function SectionLabel({ children }) {
-  return <div style={{ padding: "6px 18px", fontSize: 12, fontWeight: 800, color: T.muted, letterSpacing: 0.5, textTransform: "uppercase" }}>{children}</div>;
-}
-function EmptyRow({ text }) {
-  return <div style={{ padding: "14px 0", color: T.muted, fontSize: 13.5 }}>{text}</div>;
-}
-function Row({ left, title, sub, right, onClick }) {
-  return (
-    <div onClick={onClick} style={{
-      display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", background: T.surface,
-      borderRadius: 12, marginBottom: 8, border: `1px solid ${T.border}`, cursor: onClick ? "pointer" : "default",
-    }}>
-      <div style={{ width: 34, height: 34, borderRadius: 9, background: T.bg, display: "grid", placeItems: "center", flexShrink: 0 }}>{left}</div>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 14.5, fontWeight: 700, color: T.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{title}</div>
-        {sub && <div style={{ fontSize: 12.5, color: T.muted, marginTop: 1 }}>{sub}</div>}
-      </div>
-      {right}
-      {onClick && <ChevronRight size={17} color={T.muted} />}
-    </div>
-  );
-}
 function FAB({ onClick }) {
   return (
     <button onClick={onClick} style={{
@@ -1732,39 +1466,64 @@ function CompanyDetail({ id, ctx, onBack }) {
   const { data } = ctx;
   const c = data.companies.find((x) => x.id === id);
   const [form, setForm] = useState(null);
+  // "Performance" is PAMS's home on this screen (docs/pams/UI_SITEMAP.md
+  // §3) — a second tab alongside the company's existing Overview content,
+  // gated by its own permission key like every other module, so a role
+  // with pamsFactory access hidden simply never sees the tab strip appear.
+  const [dtab, setDtab] = useState("overview");
   if (!c) return <div style={{ padding: 18 }}><Btn variant="ghost" onClick={onBack}><ArrowLeft size={15} />Back</Btn></div>;
   const cycles = data.advisoryInfo.filter((a) => a.companyId === id);
+  const canViewPams = hasPerm(ctx, "pamsFactory", "view");
 
   return (
     <div>
       <div style={{ padding: "14px 18px 0" }}>
         <Btn variant="ghost" small onClick={onBack}><ArrowLeft size={14} />All companies</Btn>
       </div>
-      <Header title={c.name} subtitle={c.type} icon={Building2} color={MODULE_COLORS.companies} action={hasPerm(ctx, "companies", "edit") ? <Btn small onClick={() => setForm(c)}><Pencil size={13} />Edit</Btn> : null} />
-      <div style={{ padding: "0 18px" }}>
-        <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 14, padding: 14, marginBottom: 14 }}>
-          <div style={{ display: "flex", gap: 8, fontSize: 13.5, color: T.ink2, marginBottom: 8 }}>
-            <MapPin size={15} color={T.muted} style={{ flexShrink: 0, marginTop: 1 }} /> {c.address || "No address on file"}
-          </div>
-          {c.contacts.map((ct) => (
-            <div key={ct.id} style={{ borderTop: `1px solid ${T.border}`, paddingTop: 8, marginTop: 8 }}>
-              <div style={{ fontSize: 14, fontWeight: 700, color: T.ink }}>{ct.name} <span style={{ fontWeight: 500, color: T.muted }}>· {ct.position}</span></div>
-              <div style={{ display: "flex", gap: 14, marginTop: 3 }}>
-                {ct.phone && <span style={{ fontSize: 12.5, color: T.ink2, display: "flex", alignItems: "center", gap: 4 }}><Phone size={12} />{ct.phone}</span>}
-                {ct.email && <span style={{ fontSize: 12.5, color: T.ink2, display: "flex", alignItems: "center", gap: 4 }}><Mail size={12} />{ct.email}</span>}
-              </div>
-            </div>
+      <Header title={c.name} subtitle={c.type} icon={Building2} color={MODULE_COLORS.companies} action={dtab === "overview" && hasPerm(ctx, "companies", "edit") ? <Btn small onClick={() => setForm(c)}><Pencil size={13} />Edit</Btn> : null} />
+
+      {canViewPams && (
+        <div style={{ display: "flex", gap: 6, padding: "10px 18px", flexWrap: "wrap" }}>
+          {[{ k: "overview", l: "Overview" }, { k: "performance", l: "Performance" }].map((t) => (
+            <button key={t.k} onClick={() => setDtab(t.k)} style={{
+              padding: "7px 13px", borderRadius: 999, border: `1px solid ${dtab === t.k ? T.accent : T.border}`,
+              background: dtab === t.k ? T.accentSoft : T.surface, color: dtab === t.k ? T.accentDark : T.ink2,
+              fontSize: 13, fontWeight: 700, cursor: "pointer",
+            }}>{t.l}</button>
           ))}
         </div>
-      </div>
-      <SectionLabel>Advisory cycles</SectionLabel>
-      <div style={{ padding: "0 18px" }}>
-        {cycles.length === 0 && <EmptyRow text="No advisory cycles yet." />}
-        {cycles.map((a) => (
-          <Row key={a.id} onClick={() => ctx.setDetail({ type: "advisory", id: a.id })} left={<ClipboardList size={16} color={T.accent} />}
-            title={a.cycleNumber} sub={`${fmtDate(a.startDate)} → ${fmtDate(a.endDate)}`} />
-        ))}
-      </div>
+      )}
+
+      {dtab === "performance" && canViewPams ? (
+        <FactoryProfileTab companyId={id} ctx={ctx} />
+      ) : (
+        <>
+          <div style={{ padding: "0 18px" }}>
+            <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 14, padding: 14, marginBottom: 14 }}>
+              <div style={{ display: "flex", gap: 8, fontSize: 13.5, color: T.ink2, marginBottom: 8 }}>
+                <MapPin size={15} color={T.muted} style={{ flexShrink: 0, marginTop: 1 }} /> {c.address || "No address on file"}
+              </div>
+              {c.contacts.map((ct) => (
+                <div key={ct.id} style={{ borderTop: `1px solid ${T.border}`, paddingTop: 8, marginTop: 8 }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: T.ink }}>{ct.name} <span style={{ fontWeight: 500, color: T.muted }}>· {ct.position}</span></div>
+                  <div style={{ display: "flex", gap: 14, marginTop: 3 }}>
+                    {ct.phone && <span style={{ fontSize: 12.5, color: T.ink2, display: "flex", alignItems: "center", gap: 4 }}><Phone size={12} />{ct.phone}</span>}
+                    {ct.email && <span style={{ fontSize: 12.5, color: T.ink2, display: "flex", alignItems: "center", gap: 4 }}><Mail size={12} />{ct.email}</span>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+          <SectionLabel>Advisory cycles</SectionLabel>
+          <div style={{ padding: "0 18px" }}>
+            {cycles.length === 0 && <EmptyRow text="No advisory cycles yet." />}
+            {cycles.map((a) => (
+              <Row key={a.id} onClick={() => ctx.setDetail({ type: "advisory", id: a.id })} left={<ClipboardList size={16} color={T.accent} />}
+                title={a.cycleNumber} sub={`${fmtDate(a.startDate)} → ${fmtDate(a.endDate)}`} />
+            ))}
+          </div>
+        </>
+      )}
       {form && <CompanyForm initial={form} onClose={() => setForm(null)}
         onSave={(v) => { ctx.update("companies", (prev) => prev.map((p) => (p.id === v.id ? v : p))); setForm(null); }}
         onDelete={hasPerm(ctx, "companies", "delete") ? () => { if (deleteCompanyCascade(ctx, id)) { setForm(null); onBack(); } } : null} />}
@@ -3475,6 +3234,7 @@ function RiskAssessmentView({ ctx }) {
   const [levelFilter, setLevelFilter] = useState("All");
   const [companyFilter, setCompanyFilter] = useState("");
   const [form, setForm] = useState(null);
+  const [view, setView] = useState("list");
   const canEdit = hasPerm(ctx, "risk", "edit");
 
   const enriched = data.riskAssessments
@@ -3497,6 +3257,20 @@ function RiskAssessmentView({ ctx }) {
     <div>
       <Header title="Risk Assessment" subtitle={`${enriched.length} identified risks`} icon={AlertTriangle} color={MODULE_COLORS.risk}
         action={canEdit ? <Btn small onClick={() => setForm({})}><Plus size={15} />New</Btn> : null} />
+      <div style={{ display: "flex", gap: 6, padding: "0 18px 4px" }}>
+        {[{ k: "list", l: "List" }, { k: "heatmap", l: "Heatmap" }].map((v) => (
+          <button key={v.k} onClick={() => setView(v.k)} style={{
+            padding: "7px 13px", borderRadius: 999, border: `1px solid ${view === v.k ? T.accent : T.border}`,
+            background: view === v.k ? T.accentSoft : T.surface, color: view === v.k ? T.accentDark : T.ink2,
+            fontSize: 12.5, fontWeight: 700, cursor: "pointer",
+          }}>{v.l}</button>
+        ))}
+      </div>
+      {view === "heatmap" && (
+        <RiskHeatmap risks={enriched} riskLevelOf={riskLevelOf} riskLevelTone={riskLevelTone}
+          onCellClick={(cell) => { setQ(""); setLevelFilter(cell.level); }} />
+      )}
+      {view === "list" && <>
       <SearchBar value={q} onChange={setQ} placeholder="Search hazard, area, category…" />
       <div style={{ display: "flex", gap: 6, padding: "10px 18px", overflowX: "auto" }}>
         {RISK_LEVEL_FILTERS.map((f) => (
@@ -3540,6 +3314,7 @@ function RiskAssessmentView({ ctx }) {
           );
         })}
       </div>
+      </>}
       {form && <RiskAssessmentForm initial={form} ctx={ctx} onClose={() => setForm(null)} />}
     </div>
   );
@@ -3671,7 +3446,12 @@ function CapsView({ ctx }) {
   const enriched = data.caps.map((c) => {
     const ap = data.assessmentPlans.find((a) => a.id === c.assessmentPlanId);
     const adv = data.advisoryInfo.find((a) => a.id === ap?.advisoryInfoId);
-    const co = data.companies.find((x) => x.id === adv?.companyId);
+    // Falls back to the CAP's own companyId when there's no assessment
+    // plan to resolve one through — every existing CAP already has one
+    // and resolves exactly as before; this only matters for a CAP
+    // escalated directly from a PAMS Recommendation (docs/pams/
+    // DOMAIN_MODEL.md §6), which has no assessmentPlanId at all.
+    const co = data.companies.find((x) => x.id === (adv?.companyId || c.companyId));
     return { ...c, companyId: co?.id || "", companyName: co?.name || "Unassigned", status: capStatusOf(c) };
   }).filter((c) => inScope(ctx, c.companyId));
   const filtered = filter === "All" ? enriched : enriched.filter((c) => c.status === filter);
@@ -4473,7 +4253,7 @@ function SystemAdministrationView({ ctx }) {
     <div>
       <Header title="System Administration" subtitle="Backup, restore & system-wide settings" icon={Settings} color={MODULE_COLORS.sysadmin} />
       <div style={{ display: "flex", gap: 6, padding: "10px 18px" }}>
-        {[{ k: "backup", l: "Backup & Restore" }, { k: "datetime", l: "Date & Time" }].map((t) => (
+        {[{ k: "backup", l: "Backup & Restore" }, { k: "datetime", l: "Date & Time" }, { k: "pamsCatalog", l: "PAMS Assessment Catalog" }, { k: "pamsKpis", l: "PAMS KPI Library" }].map((t) => (
           <button key={t.k} onClick={() => setTab(t.k)} style={{
             flex: 1, padding: "10px 8px", borderRadius: 10, border: `1px solid ${tab === t.k ? T.accent : T.border}`,
             background: tab === t.k ? T.accent : T.surface, color: tab === t.k ? "#fff" : T.ink2,
@@ -4481,7 +4261,10 @@ function SystemAdministrationView({ ctx }) {
           }}>{t.l}</button>
         ))}
       </div>
-      {tab === "backup" ? <BackupRestoreTab ctx={ctx} canEdit={canEdit} /> : <DateTimeSettingsTab ctx={ctx} canEdit={canEdit} />}
+      {tab === "backup" && <BackupRestoreTab ctx={ctx} canEdit={canEdit} />}
+      {tab === "datetime" && <DateTimeSettingsTab ctx={ctx} canEdit={canEdit} />}
+      {tab === "pamsCatalog" && <AssessmentCatalogAdminTab ctx={ctx} canEdit={canEdit} />}
+      {tab === "pamsKpis" && <KpiLibraryAdminTab ctx={ctx} canEdit={canEdit} />}
     </div>
   );
 }
@@ -4880,47 +4663,6 @@ function UserFields({ form, setForm, companies, dashboards = [] }) {
   );
 }
 
-/* ---------------------------------------------------------------
-   EXPORT HELPERS (Excel via SheetJS, PDF via print dialog)
-----------------------------------------------------------------*/
-function downloadBlob(blob, filename) {
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  setTimeout(() => URL.revokeObjectURL(url), 2000);
-}
-
-function exportExcel(rows, sheetName, filename) {
-  const ws = XLSX.utils.json_to_sheet(rows);
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, sheetName);
-  const out = XLSX.write(wb, { bookType: "xlsx", type: "array" });
-  downloadBlob(new Blob([out], { type: "application/octet-stream" }), filename);
-}
-
-function exportPdf(title, rows, columns) {
-  const win = window.open("", "_blank");
-  if (!win) { alert("Please allow pop-ups to export a PDF."); return; }
-  const styles = `
-    body{font-family:Arial,Helvetica,sans-serif;padding:28px;color:${T.ink}}
-    h1{font-size:19px;margin:0 0 2px} .sub{font-size:12px;color:${T.muted};margin-bottom:16px}
-    table{width:100%;border-collapse:collapse} th,td{border:1px solid #D9D9D9;padding:7px 9px;font-size:11.5px;text-align:left;vertical-align:top}
-    th{background:${T.bg};font-weight:700}
-  `;
-  const head = columns.map((c) => `<th>${c.label}</th>`).join("");
-  const body = rows.map((r) => `<tr>${columns.map((c) => `<td>${(r[c.key] ?? "").toString().replace(/</g, "&lt;")}</td>`).join("")}</tr>`).join("");
-  win.document.write(`<html><head><title>${title}</title><style>${styles}</style></head><body>
-    <h1>${title}</h1><div class="sub">Generated ${fmtDate(todayISO())}</div>
-    <table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>
-  </body></html>`);
-  win.document.close();
-  win.focus();
-  setTimeout(() => win.print(), 350);
-}
 
 function ExportBar({ onExcel, onPdf }) {
   return (
@@ -4983,7 +4725,9 @@ function CompanyReport({ ctx }) {
   const rows = companiesFiltered.map((c) => {
     const cycles = data.advisoryInfo.filter((a) => a.companyId === c.id);
     const capIds = cycles.flatMap((cy) => data.assessmentPlans.filter((a) => a.advisoryInfoId === cy.id).map((a) => a.id));
-    const caps = data.caps.filter((cp) => capIds.includes(cp.assessmentPlanId));
+    // Same PAMS-escalated-CAP fallback as CapsView above — a CAP with no
+    // assessmentPlanId still counts for its own companyId.
+    const caps = data.caps.filter((cp) => capIds.includes(cp.assessmentPlanId) || cp.companyId === c.id);
     const openCaps = caps.filter((cp) => capStatusOf(cp) !== "Completed").length;
     const contacts = c.contacts.map((ct) => `${ct.name} (${ct.position})`).join("; ");
     return {
@@ -5011,7 +4755,9 @@ function CompanyReport({ ctx }) {
       {companiesFiltered.map((c) => {
         const cycles = data.advisoryInfo.filter((a) => a.companyId === c.id);
         const capIds = cycles.flatMap((cy) => data.assessmentPlans.filter((a) => a.advisoryInfoId === cy.id).map((a) => a.id));
-        const caps = data.caps.filter((cp) => capIds.includes(cp.assessmentPlanId));
+        // Same PAMS-escalated-CAP fallback as CapsView above — a CAP with no
+    // assessmentPlanId still counts for its own companyId.
+    const caps = data.caps.filter((cp) => capIds.includes(cp.assessmentPlanId) || cp.companyId === c.id);
         const openCaps = caps.filter((cp) => capStatusOf(cp) !== "Completed").length;
         return (
           <div key={c.id} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: 14, marginBottom: 8 }}>

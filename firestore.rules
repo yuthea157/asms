@@ -31,5 +31,246 @@ service cloud.firestore {
       allow write: if request.auth != null
         && request.auth.token.firebase.sign_in_provider != 'anonymous';
     }
+
+    // PAMS (Project Advisory Management System) collections — real,
+    // individual per-record documents, unlike the one-blob-per-key
+    // `advisoryDeskShared` structure above. See docs/pams/ARCHITECTURE.md
+    // §2 for why, and docs/pams/SECURITY.md §3-5 for the full reasoning
+    // behind every rule below.
+    //
+    // Same non-anonymous-write floor as advisoryDeskShared today — this is
+    // NOT yet role- or factory-scoped (that needs Firebase Auth custom
+    // claims + a Cloud Function, planned for Phase 8, see SECURITY.md §5).
+    // What IS real here, for the first time in this app, is per-collection
+    // structural enforcement that doesn't depend on knowing the caller's
+    // role at all: a verified measurement can never be silently edited,
+    // and a score can never be hand-typed instead of calculated — both
+    // enforced at the database layer below, not just hidden in the UI.
+
+    match /pams_measurements/{id} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null
+        && request.auth.token.firebase.sign_in_provider != 'anonymous';
+      // A VERIFIED measurement can never be updated — only a new
+      // superseding document may be created (docs/pams/DOMAIN_MODEL.md
+      // §3). An unverified one (Submitted/UnderReview/Returned/
+      // Resubmitted) may still be edited by its submitter.
+      allow update: if request.auth != null
+        && request.auth.token.firebase.sign_in_provider != 'anonymous'
+        && resource.data.verificationStatus != 'Verified';
+      allow delete: if false; // measurements are never deleted, only superseded
+    }
+
+    match /pams_scores/{id} {
+      allow read: if request.auth != null;
+      // Written ONLY by the scoring engine (src/pams/pamsStore.js), never
+      // hand-edited — no update/delete rule at all means both are
+      // rejected by default; only create is allowed.
+      allow create: if request.auth != null
+        && request.auth.token.firebase.sign_in_provider != 'anonymous';
+      allow update, delete: if false;
+    }
+
+    // Firestore rules have no "any collection whose name starts with
+    // pams_" wildcard — {var} always captures a whole path segment, never
+    // a prefix within one — so every PAMS collection needs its own match
+    // block. This is every Phase 2 collection
+    // (docs/pams/ROADMAP.md); each later phase adds its own new
+    // collections here in the same pass that introduces them in code,
+    // the same discipline `KEYS` in App.jsx already requires for
+    // advisoryDeskShared.
+    match /pams_factory_profiles/{id} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null
+        && request.auth.token.firebase.sign_in_provider != 'anonymous';
+    }
+    match /pams_departments/{id} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null
+        && request.auth.token.firebase.sign_in_provider != 'anonymous';
+    }
+    match /pams_industry_profiles/{id} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null
+        && request.auth.token.firebase.sign_in_provider != 'anonymous';
+    }
+    match /pams_factory_groups/{id} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null
+        && request.auth.token.firebase.sign_in_provider != 'anonymous';
+    }
+    match /pams_audit_logs/{id} {
+      allow read: if request.auth != null;
+      // Append-only from the app's perspective (src/pams/pamsStore.js
+      // never updates or deletes an audit log entry) — enforced here too,
+      // not just by convention.
+      allow create: if request.auth != null
+        && request.auth.token.firebase.sign_in_provider != 'anonymous';
+      allow update, delete: if false;
+    }
+
+    // Phase 3 (Assessment) collections.
+    match /pams_assessment_categories/{id} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null
+        && request.auth.token.firebase.sign_in_provider != 'anonymous';
+    }
+    match /pams_assessment_items/{id} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null
+        && request.auth.token.firebase.sign_in_provider != 'anonymous';
+    }
+    match /pams_assessments/{id} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null
+        && request.auth.token.firebase.sign_in_provider != 'anonymous';
+    }
+    match /pams_evidence/{id} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null
+        && request.auth.token.firebase.sign_in_provider != 'anonymous';
+    }
+
+    // Phase 4 (Planning) collections.
+    match /pams_programs/{id} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null
+        && request.auth.token.firebase.sign_in_provider != 'anonymous';
+    }
+    match /pams_projects/{id} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null
+        && request.auth.token.firebase.sign_in_provider != 'anonymous';
+    }
+    match /pams_goals/{id} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null
+        && request.auth.token.firebase.sign_in_provider != 'anonymous';
+    }
+    match /pams_objectives/{id} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null
+        && request.auth.token.firebase.sign_in_provider != 'anonymous';
+    }
+    match /pams_sub_objectives/{id} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null
+        && request.auth.token.firebase.sign_in_provider != 'anonymous';
+    }
+    match /pams_targets/{id} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null
+        && request.auth.token.firebase.sign_in_provider != 'anonymous';
+    }
+    match /pams_kpis/{id} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null
+        && request.auth.token.firebase.sign_in_provider != 'anonymous';
+    }
+    match /pams_kpi_formulas/{id} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null
+        && request.auth.token.firebase.sign_in_provider != 'anonymous';
+    }
+    match /pams_kpi_links/{id} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null
+        && request.auth.token.firebase.sign_in_provider != 'anonymous';
+    }
+
+    // Phase 5 (Implementation) collections.
+    match /pams_actions/{id} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null
+        && request.auth.token.firebase.sign_in_provider != 'anonymous';
+    }
+    match /pams_tasks/{id} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null
+        && request.auth.token.firebase.sign_in_provider != 'anonymous';
+    }
+
+    // Phase 6 (Measurement & Scoring) collections. pams_measurements and
+    // pams_scores themselves are already ruled above (added proactively
+    // in Phase 2, since they're the two integrity-critical collections
+    // this whole phase's rollup math depends on).
+    match /pams_rating_scales/{id} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null
+        && request.auth.token.firebase.sign_in_provider != 'anonymous';
+    }
+    match /pams_rating_levels/{id} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null
+        && request.auth.token.firebase.sign_in_provider != 'anonymous';
+    }
+    match /pams_rag_rules/{id} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null
+        && request.auth.token.firebase.sign_in_provider != 'anonymous';
+    }
+    match /pams_scoring_rule_versions/{id} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null
+        && request.auth.token.firebase.sign_in_provider != 'anonymous';
+    }
+    match /pams_target_summaries/{id} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null
+        && request.auth.token.firebase.sign_in_provider != 'anonymous';
+    }
+    match /pams_factory_summaries/{id} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null
+        && request.auth.token.firebase.sign_in_provider != 'anonymous';
+    }
+
+    // Phase 7 (Advisory) collections. Escalating a Recommendation into a
+    // CAP writes through the EXISTING advisoryDeskShared/caps path above
+    // (docs/pams/DOMAIN_MODEL.md §6), not a new collection — nothing new
+    // to rule for that specific write.
+    match /pams_advisory_visits/{id} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null
+        && request.auth.token.firebase.sign_in_provider != 'anonymous';
+    }
+    match /pams_findings/{id} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null
+        && request.auth.token.firebase.sign_in_provider != 'anonymous';
+    }
+    match /pams_recommendations/{id} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null
+        && request.auth.token.firebase.sign_in_provider != 'anonymous';
+    }
+
+    // Phase 8 (Governance & Security) collections. The real security
+    // upgrade this phase is about — role/factory-aware rules via custom
+    // claims — lives in functions/index.js and is NOT deployed yet (see
+    // that file's own header); these rules stay on the same
+    // non-anonymous-write floor as everything else until it is.
+    match /pams_issues/{id} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null
+        && request.auth.token.firebase.sign_in_provider != 'anonymous';
+    }
+    match /pams_custom_fields/{id} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null
+        && request.auth.token.firebase.sign_in_provider != 'anonymous';
+    }
+    match /pams_custom_field_values/{id} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null
+        && request.auth.token.firebase.sign_in_provider != 'anonymous';
+    }
+
+    // Phase 10 (Optimization & Hardening) collections.
+    match /pams_notifications/{id} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null
+        && request.auth.token.firebase.sign_in_provider != 'anonymous';
+    }
   }
 }
