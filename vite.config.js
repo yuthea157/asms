@@ -1,13 +1,13 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
-// If you deploy to https://<username>.github.io/<repo-name>/ (a normal
-// "project" GitHub Pages site), set base to "/<repo-name>/" below.
-// If you deploy to a custom domain or to https://<username>.github.io/
-// (a "user/organization" site), leave base as "/".
+// Deployed at a dedicated subdomain (e.g. https://asms.yourdomain.com/)
+// on Hostinger, so the app is served from the document root -- base
+// stays "/". If this ever moves to a subdirectory of another domain
+// instead, change this back to "/<subdirectory>/".
 export default defineConfig({
   plugins: [react()],
-  base: "/asms/",
+  base: "/",
   test: {
     environment: "node",
     globals: true,
