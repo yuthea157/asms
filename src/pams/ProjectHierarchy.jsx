@@ -29,7 +29,7 @@ export default function ProjectsSection({ companyId, ctx }) {
   const canEdit = hasPerm(ctx, "pamsFactory", "edit");
 
   const reload = () => listProjectsForFactory(companyId).then(setProjects).catch(() => setProjects([]));
-  useEffect(reload, [companyId]);
+  useEffect(() => { reload(); }, [companyId]);
 
   const save = async (data) => {
     await createProject(companyId, data, ctx);

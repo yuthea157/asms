@@ -28,7 +28,7 @@ export function ActionsForTarget({ target, ctx, canEdit }) {
   const [openId, setOpenId] = useState(null);
 
   const reload = () => listActionsForTarget(target.id).then(setActions).catch(() => setActions([]));
-  useEffect(reload, [target.id]);
+  useEffect(() => { reload(); }, [target.id]);
 
   if (openId) {
     const action = actions.find((a) => a.id === openId);
@@ -94,7 +94,7 @@ function ActionDetail({ action, ctx, canEdit, onBack }) {
   const [editForm, setEditForm] = useState(null);
 
   const reload = () => listTasksForAction(action.id).then(setTasks).catch(() => setTasks([]));
-  useEffect(reload, [action.id]);
+  useEffect(() => { reload(); }, [action.id]);
 
   return (
     <div>

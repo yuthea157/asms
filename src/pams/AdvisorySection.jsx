@@ -39,7 +39,7 @@ function VisitsList({ companyId, ctx, canEdit }) {
   const [visits, setVisits] = useState(null);
   const [form, setForm] = useState(null);
   const reload = () => listAdvisoryVisitsForFactory(companyId).then(setVisits).catch(() => setVisits([]));
-  useEffect(reload, [companyId]);
+  useEffect(() => { reload(); }, [companyId]);
 
   return (
     <div style={{ padding: "0 18px" }}>
@@ -102,7 +102,7 @@ function FindingsList({ companyId, ctx, canEdit }) {
   const [form, setForm] = useState(null);
   const [openId, setOpenId] = useState(null);
   const reload = () => listFindingsForFactory(companyId).then(setFindings).catch(() => setFindings([]));
-  useEffect(reload, [companyId]);
+  useEffect(() => { reload(); }, [companyId]);
 
   if (openId) {
     const finding = (findings || []).find((f) => f.id === openId);
@@ -153,7 +153,7 @@ function FindingDetail({ finding, companyId, ctx, canEdit, onBack }) {
   const [recs, setRecs] = useState(null);
   const [form, setForm] = useState(null);
   const reload = () => listRecommendationsForFinding(finding.id).then(setRecs).catch(() => setRecs([]));
-  useEffect(reload, [finding.id]);
+  useEffect(() => { reload(); }, [finding.id]);
 
   return (
     <div>

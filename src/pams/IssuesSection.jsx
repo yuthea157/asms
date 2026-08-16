@@ -15,7 +15,7 @@ export default function IssuesSection({ companyId, ctx }) {
   const canEdit = hasPerm(ctx, "pamsFactory", "edit");
 
   const reload = () => listIssuesForFactory(companyId).then(setIssues).catch(() => setIssues([]));
-  useEffect(reload, [companyId]);
+  useEffect(() => { reload(); }, [companyId]);
 
   return (
     <div>

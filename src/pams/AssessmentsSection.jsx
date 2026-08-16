@@ -23,7 +23,7 @@ export default function AssessmentsSection({ companyId, ctx }) {
   const canEdit = hasPerm(ctx, "pamsFactory", "edit");
 
   const reload = () => listAssessmentsForFactory(companyId).then(setAssessments).catch(() => setAssessments([]));
-  useEffect(reload, [companyId]);
+  useEffect(() => { reload(); }, [companyId]);
 
   const createAssessment = async (assessmentType) => {
     setError("");
@@ -89,7 +89,7 @@ function AssessmentDetail({ id, ctx, canEdit, onBack }) {
   const [busy, setBusy] = useState(false);
 
   const reload = () => getAssessment(id).then(setAssessment).catch(() => setAssessment(null));
-  useEffect(reload, [id]);
+  useEffect(() => { reload(); }, [id]);
   useEffect(() => {
     listAllAssessmentItemsGroupedByCategory().then((g) => {
       setCatalog(g);
