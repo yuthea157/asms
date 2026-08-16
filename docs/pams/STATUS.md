@@ -7,35 +7,41 @@ data-layer code, a matching UI wired into ASMS's existing shell, updated
 Vitest unit tests. **70 unit tests pass, zero network calls, against a
 clean production build**, as of the last commit.
 
-## What's NOT yet confirmed working live, and why
+## Live verification — now done
 
-Two things gate full live verification, both outside what code alone
-can resolve:
+`firestore.rules` and `storage.rules` have been published to the live
+Firebase project (`advisoryms-a1902`). Confirmed end-to-end in a real
+browser session: logged in as `dara@advisoryco.com`, opened ABC
+Apparel's company detail, set up its factory profile (industry type,
+legal name, workforce, etc.), saved it — the write succeeded (no more
+`"Missing or insufficient permissions."`), 17 default departments were
+seeded, and reloading the page showed the profile, departments,
+assessments/projects/advisory/issues sections all rendering from real
+Firestore data with zero console errors. `firestore.indexes.json` is
+still pending deployment (needs the Firebase CLI or manual entry per
+its own comment in the file) — most PAMS screens don't need it yet at
+today's low record counts, but compound queries will start failing
+with a "requires an index" error as data grows, so it should be
+deployed before real use.
 
-1. **`firestore.rules`, `storage.rules`, and `firestore.indexes.json`
-   have not been published to the live Firebase project.** This was
-   confirmed directly, not assumed: attempting to save a factory
-   profile through the running app returns Firestore's own
-   `"Missing or insufficient permissions."` error — proof the write
-   correctly reaches Firestore with the right shape, rejected only
-   because the rules living in this repo aren't the rules actually
-   enforced on the server yet. Publish all three (Firebase Console →
-   Firestore Database → Rules / Indexes, and → Storage → Rules) to
-   unblock this.
-2. **Live browser verification was repeatedly blocked by network
-   instability** in the automated testing environment specifically
-   (intermittent `ERR_FAILED`/`ERR_ABORTED` on calls to
-   `identitytoolkit.googleapis.com`), not by anything in the app. One
-   clean run did succeed end-to-end (login → Companies → a real
-   company's Performance tab rendering correctly, zero console errors),
-   which is real evidence the core wiring works — but the full
-   create-a-project-through-recalculate-a-scorecard flow has not been
-   click-tested end-to-end in a real browser session by this session's
-   own automation. Worth doing once the rules above are published.
-
-Neither of these reflects a code defect found and left unfixed — both
-are deployment/environment blockers, documented here rather than
-silently worked around or silently claimed as verified.
+**A real bug was found and fixed during this verification pass**, unrelated
+to the rules themselves: nine places across five PAMS components
+(`ActionsAndTasks.jsx`, `AdvisorySection.jsx`, `AssessmentsSection.jsx`,
+`IssuesSection.jsx`, `ProjectHierarchy.jsx`) passed a `reload` function
+directly as a `useEffect` callback where `reload`'s own body was an
+implicit-return arrow (`() => promise.then(...).catch(...)`). That
+makes the effect itself return a Promise instead of `undefined`/a real
+cleanup function; React stores whatever is returned as the effect's
+"destroy" callback and calls it on unmount, crashing with
+`"destroy is not a function"` and silently blanking the entire app to
+a bare `<div id="root">` — with no console error, because nothing in
+ASMS had an error boundary before this. This only ever triggered once
+a factory had a *real* `pams_factory_profiles` record (every session
+before now only ever exercised the always-safe empty-state branch, so
+it went undetected until this pass). Fixed by wrapping each call as
+`useEffect(() => { reload(); }, [deps])`; a new `src/ErrorBoundary.jsx`
+now wraps the whole app so any future render crash shows a message and
+stack trace instead of a silent blank screen.
 
 ## Phase-by-phase
 
