@@ -17,12 +17,16 @@ legal name, workforce, etc.), saved it — the write succeeded (no more
 `"Missing or insufficient permissions."`), 17 default departments were
 seeded, and reloading the page showed the profile, departments,
 assessments/projects/advisory/issues sections all rendering from real
-Firestore data with zero console errors. `firestore.indexes.json` is
-still pending deployment (needs the Firebase CLI or manual entry per
-its own comment in the file) — most PAMS screens don't need it yet at
-today's low record counts, but compound queries will start failing
-with a "requires an index" error as data grows, so it should be
-deployed before real use.
+Firestore data with zero console errors.
+
+`firestore.indexes.json`'s 21 composite indexes are now deployed too,
+via `firebase deploy --only firestore:indexes` (confirmed live via
+`firebase firestore:indexes`). This needed a `firebase.json` +
+`.firebaserc` added to the repo root (neither existed before — the
+project had only ever used manually-published rules) and the Firebase
+CLI installed locally. All three pieces of PAMS's Firestore
+configuration — rules, storage rules, and indexes — are now live and
+verified.
 
 **A real bug was found and fixed during this verification pass**, unrelated
 to the rules themselves: nine places across five PAMS components
@@ -139,9 +143,8 @@ deployment shows the project-as-domain mapping isn't precise enough,
 not built speculatively now.
 
 **Phase 10 — Optimization & Hardening.** `firestore.indexes.json` (every
-composite index every PAMS query needs — without this file deployed,
-several Phase 5-9 screens would throw Firestore "requires an index"
-errors on first real use), a genuine reusable Excel import wizard
+composite index every PAMS query needs — now deployed live, see "Live
+verification" above), a genuine reusable Excel import wizard
 (upload → validate → preview-with-errors → confirm → import, never
 silently accepting a bad row) wired to the KPI Library as its reference
 use, and live in-app notifications via a real `onSnapshot` listener
