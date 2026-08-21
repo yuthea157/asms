@@ -36,9 +36,15 @@ export function signInEmail(email, password) {
   });
 }
 
-/** Sends a real password-reset email via Supabase's own hosted flow. */
+/**
+ * Sends a real password-reset email via Supabase's own hosted flow.
+ * Explicitly passes redirectTo (rather than relying on the project's
+ * default Site URL config) so this works correctly in both local dev
+ * and production without needing to remember to keep that dashboard
+ * setting in sync with wherever the app happens to be running.
+ */
 export function sendReset(email) {
-  return supabase.auth.resetPasswordForEmail(email).then(({ error }) => {
+  return supabase.auth.resetPasswordForEmail(email, { redirectTo: window.location.origin }).then(({ error }) => {
     if (error) throw error;
   });
 }

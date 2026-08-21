@@ -16,6 +16,11 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+// Explicit, rather than relying on the project's Site URL dashboard
+// setting alone -- that setting defaulted to http://localhost:3000 and
+// broke every invite/reset link sent before this was caught, so this
+// function doesn't depend on it being kept in sync going forward.
+const APP_URL = "https://asms.usypro.com";
 
 const ALLOWED_ROLES = ["admin", "manager", "officer", "user"];
 
@@ -77,7 +82,7 @@ Deno.serve(async (req) => {
   // did that) fails: invite assumes the account doesn't exist yet, so it
   // errors "already registered" against the account createUser() just
   // made.
-  const { data: created, error: createErr } = await adminClient.auth.admin.inviteUserByEmail(email);
+  const { data: created, error: createErr } = await adminClient.auth.admin.inviteUserByEmail(email, { redirectTo: APP_URL });
   if (createErr || !created?.user) {
     return jsonResponse({ error: createErr?.message ?? "Failed to create/invite user" }, 500);
   }

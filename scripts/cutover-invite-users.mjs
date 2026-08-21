@@ -34,7 +34,7 @@ async function main() {
       results.push({ id: u.id, status: "skipped", reason: "no email on file" });
       continue;
     }
-    const { data: invited, error: inviteErr } = await supabase.auth.admin.inviteUserByEmail(u.email);
+    const { data: invited, error: inviteErr } = await supabase.auth.admin.inviteUserByEmail(u.email, { redirectTo: "https://asms.usypro.com" });
     if (inviteErr) {
       results.push({ id: u.id, status: "error", reason: inviteErr.message });
       continue;
