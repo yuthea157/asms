@@ -52,6 +52,18 @@ export async function getFullUserRecord(id) {
   return data ? toJs(KEY_CONFIG.users.fields, data) : null;
 }
 
+/**
+ * Same as getFullUserRecord, but keyed by the Supabase Auth user id
+ * rather than the app-level users.id -- needed right after a password
+ * recovery redirect, where all the app has is the authenticated
+ * session's own user id, not yet the app record it maps to.
+ */
+export async function getFullUserRecordByAuthId(authUserId) {
+  const { data, error } = await supabase.from("users").select("*").eq("auth_user_id", authUserId).maybeSingle();
+  if (error) throw error;
+  return data ? toJs(KEY_CONFIG.users.fields, data) : null;
+}
+
 const PERSONAL_DB_KEY = "advisory-desk:personal-kv";
 
 function readPersonal() {

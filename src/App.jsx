@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import * as XLSX from "xlsx";
 import logo from "./assets/logo.jpg";
-import { signInEmail, sendReset, createAuthUserAsAdmin, changeOwnPassword, changePasswordWithVerification, verifyCurrentPassword, logout } from "./supabase.js";
+import { signInEmail, sendReset, createAuthUserAsAdmin, changeOwnPassword, changePasswordWithVerification, verifyCurrentPassword, logout, supabase } from "./supabase.js";
 import { uploadLegacyAttachment, signedLegacyAttachmentUrl } from "./legacyAttachments.js";
-import { lookupUserForLogin, getFullUserRecord } from "./storageShim.js";
+import { lookupUserForLogin, getFullUserRecord, getFullUserRecordByAuthId } from "./storageShim.js";
 import {
   T, MODULE_COLORS, uid, fmtDate, todayISO, DESKTOP_BP, useViewportWidth,
   hasPerm, defaultPermissions, Pill, IconChip, Field, TextInput, TextArea, Select,
@@ -421,6 +421,26 @@ function grievanceTone(status) {
 ----------------------------------------------------------------*/
 export default function App() {
   const [role, setRole] = useState(null);
+  // Firebase used to host its own password-reset page (an
+  // action-handler URL on firebaseapp.com), so this app never needed
+  // one of its own — clicking the emailed link just worked. Supabase
+  // has no equivalent hosted page: it establishes a real session on this
+  // app's own URL and expects the APP to notice and present a "set your
+  // new password" screen. Without this listener, someone clicking a
+  // reset link would land on the normal login screen with a valid
+  // session and no way to actually set a password — which is exactly
+  // what happened before this was added.
+  const [recoveryUser, setRecoveryUser] = useState(null);
+  useEffect(() => {
+    const { data: sub } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (event === "PASSWORD_RECOVERY" && session?.user?.id) {
+        const u = await getFullUserRecordByAuthId(session.user.id).catch(() => null);
+        setRecoveryUser(u || { id: null, authUid: session.user.id, email: session.user.email });
+      }
+    });
+    return () => sub.subscription.unsubscribe();
+  }, []);
+
   // The full 20-key fetch only starts once someone is actually signed in
   // — see useStore()'s own comment for why attempting it pre-login is
   // both pointless (RLS denies almost all of it to an anonymous session)
@@ -456,6 +476,27 @@ export default function App() {
     setTab(canViewDashboard ? "dashboard" : "companies");
     setDetail(null);
   }, [role, ready, data]);
+
+  // Takes priority over the normal !role login-screen check below — a
+  // recovery session means someone already followed a real emailed
+  // link and IS authenticated with Supabase; they just haven't chosen
+  // their new password yet.
+  if (recoveryUser) {
+    return (
+      <Shell>
+        <ForceChangePasswordScreen
+          title="Set your password"
+          subtitle="Choose a password for your ASMS account."
+          onDone={() => {
+            const u = recoveryUser;
+            setRecoveryUser(null);
+            if (u.id) setRole(u);
+          }}
+          onSignOut={() => { logout().catch(() => {}); setRecoveryUser(null); }}
+        />
+      </Shell>
+    );
+  }
 
   if (!role) {
     return (
@@ -978,7 +1019,7 @@ function RoleGate({ onEnter }) {
  * operates on `auth.currentUser`, which is already this account (they just
  * signed in to get here) — no backend/Admin SDK needed for this part.
  */
-function ForceChangePasswordScreen({ onDone, onSignOut }) {
+function ForceChangePasswordScreen({ onDone, onSignOut, title = "Set a new password", subtitle = "Your administrator set a temporary password for this account. Choose one only you know before continuing." }) {
   const [pw, setPw] = useState("");
   const [confirmPw, setConfirmPw] = useState("");
   const [showPw, setShowPw] = useState(false);
@@ -1005,8 +1046,8 @@ function ForceChangePasswordScreen({ onDone, onSignOut }) {
       <div style={{ background: "#fff", borderRadius: 16, padding: 12, marginBottom: 18, display: "inline-flex", boxShadow: "0 8px 24px rgba(0,0,0,0.2)" }}>
         <img src={logo} alt="Advisory Management System" style={{ width: 96, height: "auto", display: "block" }} />
       </div>
-      <h1 style={{ color: "#fff", fontFamily: "'Space Grotesk', sans-serif", fontSize: 22, margin: "0 0 10px", textAlign: "center" }}>Set a new password</h1>
-      <p style={{ color: "#9DB3AB", fontSize: 13.5, margin: "0 0 28px", textAlign: "center", maxWidth: 320 }}>Your administrator set a temporary password for this account. Choose one only you know before continuing.</p>
+      <h1 style={{ color: "#fff", fontFamily: "'Space Grotesk', sans-serif", fontSize: 22, margin: "0 0 10px", textAlign: "center" }}>{title}</h1>
+      <p style={{ color: "#9DB3AB", fontSize: 13.5, margin: "0 0 28px", textAlign: "center", maxWidth: 320 }}>{subtitle}</p>
       <div style={{ width: "100%", background: T.surface, borderRadius: 16, padding: 20 }}>
         <Field label="New password">
           <div style={{ position: "relative" }}>
