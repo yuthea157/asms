@@ -18,9 +18,10 @@
 // calculatedAt/scoringRuleVersionId always reflects when it was actually
 // computed).
 
-import { createRecord, getRecord, listRecords, updateRecord, upsertRecordWithId, where } from "./pamsStore.js";
-import { scoreMeasurement, calculateWeightedRollup, resolveRating, resolveRag } from "./scoringEngine.js";
+import { getRecord, listRecords, updateRecord, upsertRecordWithId, where } from "./pamsStore.js";
+import { resolveRating, resolveRag } from "./scoringEngine.js";
 import { loadActiveScoringContext } from "./ratingConfig.js";
+import { supabase } from "../supabase.js";
 import { getKpi } from "./kpis.js";
 import { listKpiLinksForTarget } from "./kpis.js";
 import { getTarget, listTargetsForParent } from "./targets.js";
@@ -32,37 +33,40 @@ import { updateProject } from "./projects.js";
 import { updateTarget } from "./targets.js";
 import { updateSubObjective } from "./subObjectives.js";
 
-async function writeScore({ entityType, entityId, factoryId, trace, scoringRuleVersionId, ratingLevels, ragRule }, ctx) {
-  const score = trace.cappedAchievementPct ?? trace.rollupScore ?? null;
-  const rating = resolveRating(score, ratingLevels);
-  const rag = resolveRag(score, ragRule);
-  const id = await createRecord("pams_scores", {
-    entityType, entityId, factoryId,
-    period: new Date().toISOString().slice(0, 10),
-    scoringRuleVersionId,
-    baseline: trace.baseline ?? null, target: trace.target ?? null, actual: trace.actual ?? null, weight: trace.weight ?? null,
-    achievementPct: score, score, ratingLevelId: rating?.id || null, ratingName: rating?.name || null, ragStatus: rag,
-    calculationTrace: trace,
-    calculatedAt: new Date().toISOString(), calculatedBy: "system",
-  }, ctx);
-  return { id, score, rating, rag };
+// Routes every score write through the calculate-score Edge Function
+// rather than inserting into pams_scores directly — RLS has no INSERT
+// policy for the authenticated/anon roles on that table at all (see the
+// migration plan's Phase 7 decision: scoring moves server-side so
+// "system-write-only" is genuinely enforced, not just nominal). The
+// function independently re-runs the same scoringEngine.js math this
+// file used to run locally before writing, using the service-role key.
+async function writeScoreViaEdgeFunction(payload) {
+  const { data: sessionData } = await supabase.auth.getSession();
+  const accessToken = sessionData?.session?.access_token;
+  const { data, error } = await supabase.functions.invoke("calculate-score", {
+    body: payload,
+    headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
+  });
+  if (error) throw error;
+  const rating = data.ratingName ? { id: data.ratingLevelId, name: data.ratingName } : null;
+  return { id: data.id, score: data.score, rating, rag: data.ragStatus };
 }
 
 /** One KPI measurement's own score (called from measurements.js on every recordMeasurement). */
 export async function scoreAndStoreMeasurement({ measurementId, kpiLink, target, actualValue, period }, ctx) {
   const kpi = await getKpi(kpiLink.kpiId);
   const scoringContext = await loadActiveScoringContext(ctx);
-  const trace = scoreMeasurement({
-    actual: Number(actualValue), target: Number(kpiLink.targetValue), baseline: kpiLink.baseline !== "" && kpiLink.baseline != null ? Number(kpiLink.baseline) : null,
-    direction: kpi.direction, weight: kpiLink.weight, capConfig: scoringContext.capConfig,
-  });
-  trace.measurementId = measurementId;
-  trace.scoringRuleVersionId = scoringContext.scoringRuleVersionId;
 
-  const { id: scoreId, score, rating, rag } = await writeScore({
+  const { id: scoreId, score, rating, rag } = await writeScoreViaEdgeFunction({
+    mode: "measurement",
     entityType: "Measurement", entityId: measurementId, factoryId: target.factoryId,
-    trace, scoringRuleVersionId: scoringContext.scoringRuleVersionId, ratingLevels: scoringContext.ratingLevels, ragRule: scoringContext.ragRule,
-  }, ctx);
+    actual: Number(actualValue), target: Number(kpiLink.targetValue),
+    baseline: kpiLink.baseline !== "" && kpiLink.baseline != null ? Number(kpiLink.baseline) : null,
+    direction: kpi.direction, weight: kpiLink.weight, capConfig: scoringContext.capConfig,
+    measurementId,
+    scoringRuleVersionId: scoringContext.scoringRuleVersionId,
+    ratingLevels: scoringContext.ratingLevels, ragRule: scoringContext.ragRule,
+  });
 
   await updateRecord("pams_measurements", measurementId, { achievementPct: score, scoreId }, ctx);
   await upsertRecordWithId("pams_target_summaries", target.id, {
@@ -85,22 +89,24 @@ export async function rollupTargetScore(targetId, ctx) {
     const latest = measurements.filter((m) => m.achievementPct !== null && m.achievementPct !== undefined).sort((a, b) => (b.period || "").localeCompare(a.period || ""))[0];
     childScores.push({ score: latest ? latest.achievementPct : null, weight: link.weight });
   }
-  const rollupScore = calculateWeightedRollup(childScores);
 
-  const trace = { rollupType: "target_from_kpis", children: childScores, rollupScore, weight: target.weight };
-  const { score, rating, rag } = await writeScore({
+  const { score, rating, rag } = await writeScoreViaEdgeFunction({
+    mode: "rollup",
     entityType: "Target", entityId: targetId, factoryId: target.factoryId,
-    trace, scoringRuleVersionId: scoringContext.scoringRuleVersionId, ratingLevels: scoringContext.ratingLevels, ragRule: scoringContext.ragRule,
-  }, ctx);
+    children: childScores, weight: target.weight, rollupType: "target_from_kpis",
+    scoringRuleVersionId: scoringContext.scoringRuleVersionId, ratingLevels: scoringContext.ratingLevels, ragRule: scoringContext.ragRule,
+  });
   await updateTarget(targetId, { latestSummary: { score, ratingName: rating?.name || null, ragStatus: rag } }, ctx);
   return { score, rating, rag };
 }
 
-async function rollupChildren(entityType, entityId, factoryId, children, weightKey, scoringContext, ctx) {
+async function rollupChildren(entityType, entityId, factoryId, children, weightKey, scoringContext) {
   const childScores = await Promise.all(children.map(async (c) => ({ score: (await latestScoreFor(c.entityType, c.id)), weight: c[weightKey] })));
-  const rollupScore = calculateWeightedRollup(childScores);
-  const trace = { rollupType: `${entityType.toLowerCase()}_rollup`, children: childScores, rollupScore };
-  return writeScore({ entityType, entityId, factoryId, trace, scoringRuleVersionId: scoringContext.scoringRuleVersionId, ratingLevels: scoringContext.ratingLevels, ragRule: scoringContext.ragRule }, ctx);
+  return writeScoreViaEdgeFunction({
+    mode: "rollup",
+    entityType, entityId, factoryId, children: childScores, rollupType: `${entityType.toLowerCase()}_rollup`,
+    scoringRuleVersionId: scoringContext.scoringRuleVersionId, ratingLevels: scoringContext.ratingLevels, ragRule: scoringContext.ragRule,
+  });
 }
 
 async function latestScoreFor(entityType, entityId) {
@@ -120,7 +126,7 @@ export async function rollupSubObjectiveNode(node, factoryId, scoringContext, ct
     ...(node.children || []).map((c) => ({ entityType: "SubObjective", id: c.id, weight: c.weight })),
     ...targets.map((t) => ({ entityType: "Target", id: t.id, weight: t.weight })),
   ];
-  const { score, rating, rag } = await rollupChildren("SubObjective", node.id, factoryId, children, "weight", scoringContext, ctx);
+  const { score, rating, rag } = await rollupChildren("SubObjective", node.id, factoryId, children, "weight", scoringContext);
   await updateSubObjective(node.id, { latestSummary: { score, ratingName: rating?.name || null, ragStatus: rag } }, ctx);
   return score;
 }
@@ -144,17 +150,17 @@ export async function recalculateProjectScorecard(projectId, factoryId, ctx) {
         ...tree.map((n) => ({ entityType: "SubObjective", id: n.id, weight: n.weight })),
         ...directTargets.map((t) => ({ entityType: "Target", id: t.id, weight: t.weight })),
       ];
-      const { score: objScore, rating: objRating, rag: objRag } = await rollupChildren("Objective", objective.id, factoryId, children, "weight", scoringContext, ctx);
+      const { score: objScore, rating: objRating, rag: objRag } = await rollupChildren("Objective", objective.id, factoryId, children, "weight", scoringContext);
       await updateObjective(objective.id, { latestSummary: { score: objScore, ratingName: objRating?.name || null, ragStatus: objRag } }, ctx);
     }
 
     const objChildren = objectives.map((o) => ({ entityType: "Objective", id: o.id, weight: o.weight }));
-    const { score: goalScore, rating: goalRating, rag: goalRag } = await rollupChildren("Goal", goal.id, factoryId, objChildren, "weight", scoringContext, ctx);
+    const { score: goalScore, rating: goalRating, rag: goalRag } = await rollupChildren("Goal", goal.id, factoryId, objChildren, "weight", scoringContext);
     await updateGoal(goal.id, { latestSummary: { score: goalScore, ratingName: goalRating?.name || null, ragStatus: goalRag } }, ctx);
   }
 
   const goalChildren = goals.map((g) => ({ entityType: "Goal", id: g.id, weight: g.weight }));
-  const { score: projectScore, rating: projectRating, rag: projectRag } = await rollupChildren("Project", projectId, factoryId, goalChildren, "weight", scoringContext, ctx);
+  const { score: projectScore, rating: projectRating, rag: projectRag } = await rollupChildren("Project", projectId, factoryId, goalChildren, "weight", scoringContext);
   await updateProject(projectId, { latestSummary: { score: projectScore, ratingName: projectRating?.name || null, ragStatus: projectRag } }, ctx);
 
   await upsertRecordWithId("pams_factory_summaries", factoryId, {
