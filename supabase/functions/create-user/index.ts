@@ -71,12 +71,15 @@ Deno.serve(async (req) => {
   // check above has passed.
   const adminClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
-  const { data: created, error: createErr } = await adminClient.auth.admin.createUser({
-    email,
-    email_confirm: true, // account is real immediately; the invite email carries the actual first-login step
-  });
+  // inviteUserByEmail() both creates the auth user AND sends the invite
+  // email in one atomic step. Calling admin.createUser() first and then
+  // inviteUserByEmail() separately (an earlier version of this function
+  // did that) fails: invite assumes the account doesn't exist yet, so it
+  // errors "already registered" against the account createUser() just
+  // made.
+  const { data: created, error: createErr } = await adminClient.auth.admin.inviteUserByEmail(email);
   if (createErr || !created?.user) {
-    return jsonResponse({ error: createErr?.message ?? "Failed to create auth user" }, 500);
+    return jsonResponse({ error: createErr?.message ?? "Failed to create/invite user" }, 500);
   }
 
   const { error: profileInsertErr } = await adminClient.from("profiles").insert({
@@ -102,17 +105,6 @@ Deno.serve(async (req) => {
   });
   if (legacyInsertErr) {
     return jsonResponse({ error: legacyInsertErr.message }, 500);
-  }
-
-  const { error: inviteErr } = await adminClient.auth.admin.inviteUserByEmail(email);
-  if (inviteErr) {
-    // Account and profile both exist at this point -- surface the email
-    // failure distinctly so the caller can retry just the invite (e.g.
-    // via resetPasswordForEmail) rather than the whole creation flow.
-    return jsonResponse(
-      { userId: created.user.id, legacyUserId, warning: `Account created but invite email failed: ${inviteErr.message}` },
-      200,
-    );
   }
 
   return jsonResponse({ userId: created.user.id, legacyUserId }, 200);
