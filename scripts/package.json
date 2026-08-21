@@ -1,0 +1,14 @@
+{
+  "name": "asms-migration-scripts",
+  "private": true,
+  "type": "module",
+  "description": "One-time Firebase-to-Supabase migration tooling. Deliberately isolated from the main app's package.json/node_modules -- the app is migrating away from Firebase, so these scripts' own firebase-admin dependency should never leak into the app's dependency tree, and this whole directory is expected to be deleted once the migration is complete and verified.",
+  "scripts": {
+    "export": "node export-firestore.mjs",
+    "transform": "node migrate-to-supabase.mjs"
+  },
+  "dependencies": {
+    "firebase-admin": "^13.0.0",
+    "@supabase/supabase-js": "^2.45.0"
+  }
+}
