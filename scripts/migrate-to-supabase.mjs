@@ -389,9 +389,9 @@ const PAMS_TABLE_MAP = {
   pams_factory_groups: (d) => ({ id: d.id, name: d.name, parent_organization: d.parentOrganization, member_factory_ids: d.memberFactoryIds }),
   pams_industry_profiles: (d) => ({ id: d.id, industry_type: d.industryType, default_assessment_category_ids: d.defaultAssessmentCategoryIds, default_kpi_ids: d.defaultKpiIds, default_department_names: d.defaultDepartmentNames }),
   pams_departments: (d) => ({ id: d.id, factory_id: d.factoryId, name: d.name, code: d.code, is_system_default: d.isSystemDefault ?? false }),
-  pams_projects: (d) => ({ id: d.id, code: d.code, name: d.name, project_type: d.projectType, factory_id: d.factoryId, program_id: d.programId ?? null, advisory_info_id: d.advisoryInfoId ?? null, client_or_donor: d.clientOrDonor, project_manager_user_id: d.projectManagerUserId, advisor_user_ids: d.advisorUserIds, start_date: dateOnly(d.startDate), end_date: dateOnly(d.endDate), budget: d.budget, status: d.status, priority: d.priority, description: d.description, expected_outcomes: d.expectedOutcomes }),
+  pams_projects: (d) => ({ id: d.id, code: d.code, name: d.name, project_type: d.projectType, factory_id: d.factoryId, program_id: d.programId ?? null, advisory_info_id: d.advisoryInfoId ?? null, client_or_donor: d.clientOrDonor, project_manager_user_id: d.projectManagerUserId, advisor_user_ids: d.advisorUserIds, start_date: dateOnly(d.startDate), end_date: dateOnly(d.endDate), budget: d.budget, status: d.status, priority: d.priority, description: d.description, expected_outcomes: d.expectedOutcomes, latest_summary: d.latestSummary ?? null }),
   pams_scoring_rule_versions: (d) => ({ id: d.id, version_label: d.versionLabel, effective_from: dateOnly(d.effectiveFrom), effective_to: dateOnly(d.effectiveTo), achievement_cap_enabled: d.achievementCapEnabled, achievement_cap_value: d.achievementCapValue, baseline_to_target_formula_enabled: d.baselineToTargetFormulaEnabled, weighting_rules: d.weightingRules, is_active: d.isActive }),
-  pams_goals: (d) => ({ id: d.id, code: d.code, factory_id: d.factoryId, project_id: d.projectId, title: d.title, description: d.description, strategic_area: d.strategicArea, baseline: d.baseline, expected_outcome: d.expectedOutcome, weight: d.weight, start_date: dateOnly(d.startDate), end_date: dateOnly(d.endDate), owner_user_id: d.ownerUserId, status: d.status, current_achievement: d.currentAchievement, score_id: d.scoreId ?? null }),
+  pams_goals: (d) => ({ id: d.id, code: d.code, factory_id: d.factoryId, project_id: d.projectId, title: d.title, description: d.description, strategic_area: d.strategicArea, baseline: d.baseline, expected_outcome: d.expectedOutcome, weight: d.weight, start_date: dateOnly(d.startDate), end_date: dateOnly(d.endDate), owner_user_id: d.ownerUserId, status: d.status, current_achievement: d.currentAchievement, score_id: d.scoreId ?? null, latest_summary: d.latestSummary ?? null }),
   pams_objectives: (d) => ({ id: d.id, goal_id: d.goalId, code: d.code, title: d.title, description: d.description, owner_user_id: d.ownerUserId, baseline: d.baseline, target: d.target, weight: d.weight, start_date: dateOnly(d.startDate), end_date: dateOnly(d.endDate), status: d.status, progress: d.progress, score_id: d.scoreId ?? null }),
   pams_sub_objectives: (d) => ({ id: d.id, objective_id: d.objectiveId, parent_sub_objective_id: d.parentSubObjectiveId ?? null, code: d.code, title: d.title, description: d.description, owner_user_id: d.ownerUserId, baseline: d.baseline, target: d.target, weight: d.weight, start_date: dateOnly(d.startDate), end_date: dateOnly(d.endDate), status: d.status, progress: d.progress, score_id: d.scoreId ?? null }),
   pams_targets: (d) => ({ id: d.id, parent_type: d.parentType, parent_id: d.parentId, objective_id: d.objectiveId, factory_id: d.factoryId, project_id: d.projectId, code: d.code, title: d.title, description: d.description, target_type: d.targetType, unit: d.unit, direction: d.direction, baseline: d.baseline, target_value: d.targetValue, range_min: d.rangeMin, range_max: d.rangeMax, weight: d.weight, start_date: dateOnly(d.startDate), end_date: dateOnly(d.endDate), owner_user_id: d.ownerUserId, status: d.status, latest_summary: d.latestSummary }),
@@ -453,16 +453,44 @@ function mapAssessmentItemResults(d) {
   }));
 }
 
+// Tables carrying the createdByUserId/updatedByUserId/createdAt/
+// updatedAt audit quartet stamped by src/pams/auditFields.js (confirmed
+// against the real schema after the 20260821140000 rename migration --
+// catalog/line-item/computed-cache tables like pams_rating_levels,
+// pams_assessment_items, pams_custom_field_values, pams_measurements
+// (which has its own submitted_by/verified_by instead),
+// pams_evidence (uploaded_by/verified_by), pams_scores
+// (calculated_by/calculated_at), pams_audit_logs, pams_factory_summaries
+// and pams_target_summaries deliberately don't have this quartet).
+const AUDITED_PAMS_TABLES = new Set([
+  "pams_actions", "pams_advisory_visits", "pams_assessment_categories", "pams_assessments",
+  "pams_custom_fields", "pams_departments", "pams_factory_groups", "pams_factory_profiles",
+  "pams_findings", "pams_goals", "pams_industry_profiles", "pams_issues", "pams_kpi_formulas",
+  "pams_kpi_links", "pams_kpis", "pams_notifications", "pams_objectives", "pams_projects",
+  "pams_rag_rules", "pams_rating_scales", "pams_recommendations", "pams_scoring_rule_versions",
+  "pams_sub_objectives", "pams_targets", "pams_tasks",
+]);
+function withAudit(table, row, d) {
+  if (!AUDITED_PAMS_TABLES.has(table)) return row;
+  return {
+    ...row,
+    created_by_user_id: d.createdByUserId ?? null,
+    updated_by_user_id: d.updatedByUserId ?? null,
+    created_at: ts(d.createdAt),
+    updated_at: ts(d.updatedAt),
+  };
+}
+
 async function migratePams() {
   console.log("\n-- PAMS (33 collections, near-1:1) --");
 
   for (const [collection, mapper] of Object.entries(PAMS_TABLE_MAP)) {
     const docs = await loadJson(collection);
-    await insertRows(collection, docs.map(mapper));
+    await insertRows(collection, docs.map((d) => withAudit(collection, mapper(d), d)));
   }
 
   const factoryProfiles = await loadJson("pams_factory_profiles");
-  await insertRows("pams_factory_profiles", factoryProfiles.map(mapFactoryProfile));
+  await insertRows("pams_factory_profiles", factoryProfiles.map((d) => withAudit("pams_factory_profiles", mapFactoryProfile(d), d)));
 
   const scores = await loadJson("pams_scores");
   await insertRows("pams_scores", scores.map((d) => ({
@@ -481,7 +509,7 @@ async function migratePams() {
   })));
 
   const assessments = await loadJson("pams_assessments");
-  await insertRows("pams_assessments", assessments.map(mapAssessment));
+  await insertRows("pams_assessments", assessments.map((d) => withAudit("pams_assessments", mapAssessment(d), d)));
   await insertRows("pams_assessment_item_results", assessments.flatMap(mapAssessmentItemResults));
 }
 
