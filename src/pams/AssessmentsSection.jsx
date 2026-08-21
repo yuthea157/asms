@@ -11,7 +11,7 @@ import {
 } from "../ui.jsx";
 import { ASSESSMENT_TYPES, createDraftAssessment, getAssessment, listAssessmentsForFactory, markAssessmentReviewed, reopenAssessment, submitAssessment, updateItemResult } from "./assessments.js";
 import { listAllAssessmentItemsGroupedByCategory } from "./assessmentCategories.js";
-import { deleteEvidence, listEvidenceFor, uploadEvidence } from "./evidence.js";
+import { deleteEvidence, listEvidenceFor, signedEvidenceUrl, uploadEvidence } from "./evidence.js";
 import { resolveDefaultRating } from "./defaultRating.js";
 
 export default function AssessmentsSection({ companyId, ctx }) {
@@ -225,7 +225,11 @@ function AssessmentItemRow({ item, result, assessmentId, ctx, canEdit, onSave })
           {(evidence || []).map((ev) => (
             <div key={ev.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0", fontSize: 13 }}>
               <FileText size={14} color={T.muted} />
-              <a href={ev.downloadUrl} target="_blank" rel="noreferrer" style={{ color: T.accent, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{ev.title}</a>
+              <a
+                href="#"
+                onClick={async (e) => { e.preventDefault(); const url = await signedEvidenceUrl(ev.storagePath); window.open(url, "_blank", "noreferrer"); }}
+                style={{ color: T.accent, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+              >{ev.title}</a>
               {canEdit && <button onClick={() => deleteEvidence(ev, ctx).then(reloadEvidence)} style={{ background: "none", border: "none", cursor: "pointer" }}><Trash2 size={13} color={T.red} /></button>}
             </div>
           ))}

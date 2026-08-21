@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import * as XLSX from "xlsx";
 import logo from "./assets/logo.jpg";
-import { signInEmail, createEmailAccount, sendReset, createAuthUserAsAdmin, changeOwnPassword, changePasswordWithVerification, verifyCurrentPassword, logout as firebaseLogout } from "./firebase.js";
+import { signInEmail, sendReset, createAuthUserAsAdmin, changeOwnPassword, changePasswordWithVerification, verifyCurrentPassword, logout } from "./supabase.js";
+import { uploadLegacyAttachment, signedLegacyAttachmentUrl } from "./legacyAttachments.js";
+import { lookupUserForLogin, getFullUserRecord } from "./storageShim.js";
 import {
   T, MODULE_COLORS, uid, fmtDate, todayISO, DESKTOP_BP, useViewportWidth,
   hasPerm, defaultPermissions, Pill, IconChip, Field, TextInput, TextArea, Select,
@@ -25,28 +27,24 @@ import {
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-// Used only as a throwaway initial password for admin-created accounts —
-// the admin never sees or communicates it; a real password-reset email is
-// sent immediately so the new user sets their own.
-function randomPassword() {
-  return `${Math.random().toString(36).slice(2)}${Math.random().toString(36).slice(2)}Aa1!`;
-}
-
 // Firebase's auth/* error codes are accurate but not something to show a
 // non-technical user verbatim — this maps the ones this app can actually
 // trigger to plain language.
 function authErrorMessage(err) {
+  // Supabase auth errors carry a `code` field (GoTrue error codes), distinct
+  // from Firebase's old `auth/xxx` codes.
   const code = err?.code || "";
-  if (code === "auth/invalid-email") return "That doesn't look like a valid email address.";
-  if (code === "auth/user-not-found" || code === "auth/invalid-credential" || code === "auth/wrong-password") return "Incorrect email or password.";
-  if (code === "auth/too-many-requests") return "Too many attempts — please wait a moment and try again.";
-  if (code === "auth/email-already-in-use") return "An account with that email already exists.";
-  if (code === "auth/weak-password") return "That password is too weak — use at least 6 characters.";
-  if (code === "auth/network-request-failed") return "Network error — check your connection and try again.";
+  if (code === "email_address_invalid" || code === "validation_failed") return "That doesn't look like a valid email address.";
+  if (code === "invalid_credentials" || code === "user_not_found") return "Incorrect email or password.";
+  if (code === "over_request_rate_limit" || code === "over_email_send_rate_limit" || code === "too_many_requests") return "Too many attempts — please wait a moment and try again.";
+  if (code === "email_exists" || code === "user_already_exists") return "An account with that email already exists.";
+  if (code === "weak_password") return "That password is too weak — use at least 6 characters.";
+  if (err instanceof TypeError || /fetch/i.test(err?.message || "")) return "Network error — check your connection and try again.";
   return err?.message || "Something went wrong. Please try again.";
 }
-// Downscale + compress an image file to a base64 JPEG so it fits comfortably
-// within the 5MB-per-key storage limit.
+// Downscale + compress an image file to a JPEG Blob, uploadable directly
+// to Supabase Storage (legacy-attachments bucket) — real object storage
+// now, not a base64 string embedded in a JSON blob document.
 function compressImageFile(file, maxDim = 1100, quality = 0.7) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -64,7 +62,10 @@ function compressImageFile(file, maxDim = 1100, quality = 0.7) {
         canvas.height = height;
         const ctx = canvas.getContext("2d");
         ctx.drawImage(img, 0, 0, width, height);
-        resolve(canvas.toDataURL("image/jpeg", quality));
+        canvas.toBlob((blob) => {
+          if (!blob) { reject(new Error("Could not compress image")); return; }
+          resolve(new File([blob], file.name, { type: "image/jpeg" }));
+        }, "image/jpeg", quality);
       };
       img.onerror = () => reject(new Error("Could not read image"));
       img.src = reader.result;
@@ -76,19 +77,14 @@ function compressImageFile(file, maxDim = 1100, quality = 0.7) {
 
 // Audit Tool evidence accepts photos AND general files (PDFs, docs…), unlike
 // the photo-only attachments above — images still get compressed the same
-// way, non-image files are just read as-is with a size cap since they can't
-// be downscaled.
+// way; non-image files are uploaded as-is (with a size cap, since they
+// can't be downscaled) rather than compressed.
 function readEvidenceFile(file, maxBytes = 4_000_000) {
   if (file.type.startsWith("image/")) {
-    return compressImageFile(file).then((dataUrl) => ({ name: file.name, kind: "image", dataUrl }));
+    return compressImageFile(file).then((compressed) => ({ name: file.name, kind: "image", file: compressed }));
   }
-  return new Promise((resolve, reject) => {
-    if (file.size > maxBytes) { reject(new Error(`"${file.name}" is too large (max 4MB for non-image files).`)); return; }
-    const reader = new FileReader();
-    reader.onload = () => resolve({ name: file.name, kind: "file", mime: file.type, dataUrl: reader.result });
-    reader.onerror = () => reject(new Error("Could not read file"));
-    reader.readAsDataURL(file);
-  });
+  if (file.size > maxBytes) return Promise.reject(new Error(`"${file.name}" is too large (max 4MB for non-image files).`));
+  return Promise.resolve({ name: file.name, kind: "file", mime: file.type, file });
 }
 
 const ROLE_LABEL = { admin: "Administrator", manager: "Manager", officer: "Advisory Officer", user: "Company User" };
@@ -331,12 +327,27 @@ function licenseTone(status) {
   return status === "Expired" ? "red" : status === "Expiring Soon" ? "amber" : status === "Cancelled" ? "muted" : "green";
 }
 
-function useStore() {
+function useStore(enabled) {
   const [data, setData] = useState(null);
   const [ready, setReady] = useState(false);
   const [saveState, setSaveState] = useState("idle");
 
+  // Gated on `enabled` (App() only passes true once a role is signed in)
+  // — RLS correctly denies an anonymous session almost everything, so
+  // attempting all 20 keys before login would both fail every fetch AND
+  // (worse) trip the "missing key -> reseed with demo data" fallback
+  // below, which would try to overwrite real tables with seed content
+  // for every key an anonymous session simply isn't allowed to read.
   useEffect(() => {
+    if (!enabled) {
+      // Reset rather than leave stale: without this, signing out and
+      // back in as someone else would briefly render the main app with
+      // the previous session's data for a moment before the fresh fetch
+      // below completes (ready never went back to false in between).
+      setData(null);
+      setReady(false);
+      return;
+    }
     (async () => {
       const next = {};
       let anyMissing = false;
@@ -362,7 +373,7 @@ function useStore() {
       setData(next);
       setReady(true);
     })();
-  }, []);
+  }, [enabled]);
 
   const update = useCallback((key, updater) => {
     setData((prev) => {
@@ -409,8 +420,13 @@ function grievanceTone(status) {
    MAIN APP
 ----------------------------------------------------------------*/
 export default function App() {
-  const { data, ready, update } = useStore();
   const [role, setRole] = useState(null);
+  // The full 20-key fetch only starts once someone is actually signed in
+  // — see useStore()'s own comment for why attempting it pre-login is
+  // both pointless (RLS denies almost all of it to an anonymous session)
+  // and actively dangerous (the "missing key" fallback would try to
+  // reseed real tables with demo data for everything RLS blocked).
+  const { data, ready, update } = useStore(!!role);
   const [tab, setTab] = useState("dashboard");
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [detail, setDetail] = useState(null); // {type:'company'|'advisory'|'assessment', id}
@@ -423,32 +439,38 @@ export default function App() {
   const viewportWidth = useViewportWidth();
   const isDesktop = viewportWidth >= DESKTOP_BP;
 
+  // The landing tab depends on the signed-in account's permissions, which
+  // aren't known until `data` finishes loading (which itself only starts
+  // once `role` is set) — so this can't happen at the moment of login the
+  // way it used to; it runs once, the first time both role and data are
+  // ready. Default is Overview — the "dashboard" tab itself already shows
+  // the assigned dashboard in place of the generic Overview when one
+  // exists (see assignedDashboard below) — so the only reason to land
+  // somewhere else is not having permission to view Overview at all, in
+  // which case Companies instead.
+  const initialTabSetRef = useRef(false);
+  useEffect(() => {
+    if (!role || !ready || !data || initialTabSetRef.current) return;
+    initialTabSetRef.current = true;
+    const canViewDashboard = role.role === "admin" || !!(data.permissions?.[role.role]?.dashboard ?? defaultPermissions()[role.role]?.dashboard)?.view;
+    setTab(canViewDashboard ? "dashboard" : "companies");
+    setDetail(null);
+  }, [role, ready, data]);
+
+  if (!role) {
+    return (
+      <Shell>
+        <RoleGate onEnter={(u) => { initialTabSetRef.current = false; setRole(u); }} />
+      </Shell>
+    );
+  }
+
   if (!ready) {
     return (
       <Shell>
         <div style={{ display: "grid", placeItems: "center", height: "70vh", color: T.muted, fontFamily: "'Space Grotesk', sans-serif" }}>
           Loading advisory workspace…
         </div>
-      </Shell>
-    );
-  }
-
-  if (!role) {
-    // The landing tab is decided right here, at the moment of login, since
-    // it depends on the account being signed in. Default is Overview — the
-    // "dashboard" tab itself already shows the assigned dashboard in place
-    // of the generic Overview when one exists (see assignedDashboard
-    // below) — so the only reason to land somewhere else is not having
-    // permission to view Overview at all, in which case Companies instead.
-    const handleLogin = (u) => {
-      const canViewDashboard = u.role === "admin" || !!(data.permissions?.[u.role]?.dashboard ?? defaultPermissions()[u.role]?.dashboard)?.view;
-      setRole(u);
-      setTab(canViewDashboard ? "dashboard" : "companies");
-      setDetail(null);
-    };
-    return (
-      <Shell>
-        <RoleGate users={data.users} update={update} onEnter={handleLogin} />
       </Shell>
     );
   }
@@ -462,7 +484,7 @@ export default function App() {
             update("users", (prev) => prev.map((u) => (u.id === role.id ? next : u)));
             setRole(next);
           }}
-          onSignOut={() => { firebaseLogout().catch(() => {}); setRole(null); }}
+          onSignOut={() => { logout().catch(() => {}); setRole(null); }}
         />
       </Shell>
     );
@@ -546,7 +568,7 @@ export default function App() {
   const roleLabel = ROLE_LABEL[role.role]?.split(" ")[0] || role.role;
   // Ends the real Firebase session and restores the anonymous one Firestore
   // rules expect, so the login screen is immediately usable for whoever's next.
-  const handleSignOut = () => { firebaseLogout().catch(() => {}); setRole(null); };
+  const handleSignOut = () => { logout().catch(() => {}); setRole(null); };
 
   if (isDesktop) {
     return (
@@ -853,7 +875,7 @@ function Shell({ children, wide }) {
 /* ---------------------------------------------------------------
    ROLE GATE
 ----------------------------------------------------------------*/
-function RoleGate({ users, update, onEnter }) {
+function RoleGate({ onEnter }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPw, setShowPw] = useState(false);
@@ -867,33 +889,29 @@ function RoleGate({ users, update, onEnter }) {
     setResetMsg("");
     const enteredEmail = email.trim().toLowerCase();
     if (!enteredEmail || !password) { setError("Enter your email and password."); return; }
-    const match = users.find((u) => (u.email || "").trim().toLowerCase() === enteredEmail);
-    if (!match) { setError("Incorrect email or password."); return; }
 
     setBusy(true);
     try {
-      if (match.authUid) {
-        // Already migrated to real Firebase Authentication — normal sign-in.
-        await signInEmail(match.email, password);
-        onEnter(match);
+      // The only query an unauthenticated session is allowed to run (see
+      // storageShim.js's lookupUserForLogin) -- id/email/authUid only.
+      const match = await lookupUserForLogin(enteredEmail);
+      if (!match) { setError("Incorrect email or password."); return; }
+      if (!match.authUid) {
+        // Every account now requires a real Supabase Auth identity (set up
+        // via an emailed invite/reset link) — there is no legacy
+        // plaintext-password fallback anymore. See the migration plan's
+        // auth section for why: Firebase's password hashes can't be
+        // carried over even for accounts that DO already have a real
+        // Firebase Auth identity, so every account gets a fresh invite.
+        setError("This account hasn't been set up yet. Use “Forgot password” below to receive a setup link.");
         return;
       }
-      // Legacy account (predates real authentication): still checked
-      // against its plaintext password, then transparently migrated the
-      // moment that password is proven correct — the user notices nothing.
-      if (!EMAIL_RE.test(match.email || "")) {
-        setError("This account has no valid email on file. Ask an administrator to set one before signing in.");
-        return;
-      }
-      if ((match.password || "") !== password) {
-        setError("Incorrect email or password.");
-        return;
-      }
-      const cred = await createEmailAccount(match.email, password);
-      const migrated = { ...match, authUid: cred.user.uid };
-      delete migrated.password;
-      update("users", (prev) => prev.map((u) => (u.id === match.id ? migrated : u)));
-      onEnter(migrated);
+      await signInEmail(match.email, password);
+      // The session is authenticated now, so the full record (role,
+      // companyId, etc, none of which the anon-scoped lookup above could
+      // see) is readable.
+      const full = await getFullUserRecord(match.id);
+      onEnter(full || match);
     } catch (err) {
       setError(authErrorMessage(err));
     } finally {
@@ -1723,8 +1741,11 @@ function VisitsView({ ctx }) {
 function VisitForm({ initial, ctx, onClose }) {
   const { data, update } = ctx;
   const scopedAdvisory = data.advisoryInfo.filter((a) => inScope(ctx, a.companyId));
-  const [v, setV] = useState({ advisoryInfoId: scopedAdvisory[0]?.id || "", visitNumber: "", date: todayISO(), startTime: "09:00", endTime: "11:00", log: "", ...initial });
-  const [attachments, setAttachments] = useState([]);
+  // A stable id is needed up front (not just at save time) because
+  // attachments now upload to real Storage as soon as they're picked,
+  // under a path keyed by this visit's id.
+  const [v, setV] = useState({ advisoryInfoId: scopedAdvisory[0]?.id || "", visitNumber: "", date: todayISO(), startTime: "09:00", endTime: "11:00", log: "", ...initial, id: initial.id || uid("v") });
+  const [attachments, setAttachments] = useState([]); // [{id, name, storagePath, mimeType, sizeBytes, previewUrl}]
   const [loadingFiles, setLoadingFiles] = useState(false);
   const [attError, setAttError] = useState("");
   const fileInputRef = useRef(null);
@@ -1734,7 +1755,11 @@ function VisitForm({ initial, ctx, onClose }) {
     (async () => {
       try {
         const res = await window.storage.get(`attachments:${initial.id}`, true);
-        setAttachments(res ? JSON.parse(res.value) : []);
+        const items = res ? JSON.parse(res.value) : [];
+        const withPreviews = await Promise.all(items.map(async (a) => ({
+          ...a, previewUrl: await signedLegacyAttachmentUrl(a.storagePath).catch(() => null),
+        })));
+        setAttachments(withPreviews);
       } catch {
         setAttachments([]);
       }
@@ -1750,13 +1775,16 @@ function VisitForm({ initial, ctx, onClose }) {
       const next = [...attachments];
       for (const f of files) {
         if (!f.type.startsWith("image/")) { setAttError("Only image files are supported."); continue; }
-        const dataUrl = await compressImageFile(f);
-        next.push({ id: uid("att"), name: f.name, dataUrl });
+        const compressed = await compressImageFile(f);
+        const attId = uid("att");
+        const uploaded = await uploadLegacyAttachment(compressed, "visit", v.id, attId);
+        const previewUrl = await signedLegacyAttachmentUrl(uploaded.storagePath).catch(() => null);
+        next.push({ ...uploaded, previewUrl });
       }
       if (next.length > 8) { setAttError("Limit is 8 photos per visit — keeping the first 8."); }
       setAttachments(next.slice(0, 8));
     } catch {
-      setAttError("Couldn't process one of the images.");
+      setAttError("Couldn't upload one of the images.");
     } finally {
       setLoadingFiles(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
@@ -1811,7 +1839,7 @@ function VisitForm({ initial, ctx, onClose }) {
         <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 8 }}>
           {attachments.map((a) => (
             <div key={a.id} style={{ position: "relative", width: 72, height: 72 }}>
-              <img src={a.dataUrl} alt={a.name} style={{ width: 72, height: 72, objectFit: "cover", borderRadius: 10, border: `1px solid ${T.border}` }} />
+              <img src={a.previewUrl} alt={a.name} style={{ width: 72, height: 72, objectFit: "cover", borderRadius: 10, border: `1px solid ${T.border}` }} />
               <button onClick={() => removeAttachment(a.id)} type="button" style={{
                 position: "absolute", top: -6, right: -6, width: 20, height: 20, borderRadius: 999,
                 background: T.red, border: "2px solid #fff", color: "#fff", display: "grid", placeItems: "center", cursor: "pointer",
@@ -1882,7 +1910,7 @@ function ResetAuditDataDialog({ ctx, onClose }) {
       onClose();
     } catch (err) {
       const code = err?.code || "";
-      setError(code === "auth/wrong-password" || code === "auth/invalid-credential" ? "Incorrect password." : authErrorMessage(err));
+      setError(code === "invalid_credentials" ? "Incorrect password." : authErrorMessage(err));
     } finally {
       setBusy(false);
     }
@@ -2845,9 +2873,9 @@ function EvidenceThumb({ item, onRemove }) {
   return (
     <div style={{ position: "relative", width: 60, height: 60 }}>
       {item.kind === "image" ? (
-        <img src={item.dataUrl} alt={item.name} style={{ width: 60, height: 60, objectFit: "cover", borderRadius: 8, border: `1px solid ${T.border}` }} />
+        <img src={item.previewUrl} alt={item.name} style={{ width: 60, height: 60, objectFit: "cover", borderRadius: 8, border: `1px solid ${T.border}` }} />
       ) : (
-        <a href={item.dataUrl} download={item.name} title={item.name} style={{
+        <a href={item.previewUrl} download={item.name} title={item.name} style={{
           width: 60, height: 60, borderRadius: 8, border: `1px solid ${T.border}`, background: T.bg,
           display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 2, textDecoration: "none", padding: 4, boxSizing: "border-box",
         }}>
@@ -3010,7 +3038,14 @@ function AuditToolDetail({ id, ctx, onBack }) {
     (async () => {
       try {
         const res = await window.storage.get(`attachments:${id}`, true);
-        setEvidenceByQ(res ? JSON.parse(res.value) : {});
+        const map = res ? JSON.parse(res.value) : {};
+        const withPreviews = {};
+        await Promise.all(Object.entries(map).map(async ([qId, items]) => {
+          withPreviews[qId] = await Promise.all(items.map(async (it) => ({
+            ...it, previewUrl: await signedLegacyAttachmentUrl(it.storagePath).catch(() => null),
+          })));
+        }));
+        setEvidenceByQ(withPreviews);
       } catch {
         setEvidenceByQ({});
       }
@@ -3071,9 +3106,13 @@ function AuditToolDetail({ id, ctx, onBack }) {
       for (const f of files) {
         if (items.length >= 4) { setEvidenceError("Limit is 4 evidence files per question."); break; }
         try {
-          items.push({ id: uid("ev"), ...(await readEvidenceFile(f)) });
+          const { name, kind, file, mime } = await readEvidenceFile(f);
+          const evId = uid("ev");
+          const uploaded = await uploadLegacyAttachment(file, "audit_tool_question", `${id}:${qId}`, evId);
+          const previewUrl = await signedLegacyAttachmentUrl(uploaded.storagePath).catch(() => null);
+          items.push({ id: evId, name, kind, mime, storagePath: uploaded.storagePath, mimeType: uploaded.mimeType, sizeBytes: uploaded.sizeBytes, previewUrl });
         } catch (err) {
-          setEvidenceError(err.message || "Couldn't process one of the files.");
+          setEvidenceError(err.message || "Couldn't upload one of the files.");
         }
       }
       await persistEvidence({ ...evidenceByQ, [qId]: items });
@@ -4436,29 +4475,23 @@ function UsersView({ ctx }) {
     if (!EMAIL_RE.test(email)) { setSaveError("Enter a valid email address."); return; }
     const duplicate = data.users.some((p) => p.id !== u.id && (p.email || "").trim().toLowerCase() === email);
     if (duplicate) { setSaveError("An account with that email already exists."); return; }
-    if (!u.id && (u.initialPassword || "").length < 6) { setSaveError("Set an initial password of at least 6 characters."); return; }
 
     setSaving(true);
     setSaveError("");
     try {
       if (u.id) {
-        // Editing an existing account: email is read-only (see UserFields —
-        // the client SDK can't change another user's Firebase Auth email
-        // without a backend), so this is a plain profile update. Deliberately
-        // NOT touching password/authUid here — `u` already carries whatever
-        // the record had (UserFields never exposes those fields to edit),
-        // and a not-yet-migrated legacy account's plaintext password must
-        // survive an admin's edit, or that person could never log in again
-        // to self-migrate (see RoleGate).
+        // Editing an existing account: email is read-only (changing another
+        // user's auth email needs a backend call this form doesn't make),
+        // so this is a plain profile update.
         update("users", (prev) => prev.map((p) => (p.id === u.id ? { ...u, email: p.email } : p)));
         closeForm();
       } else {
-        // New account: admin sets the initial password directly (via a
-        // secondary Firebase App instance, so the admin's own session isn't
-        // disturbed) — the account is flagged mustChangePassword so the
-        // real password never stays admin-known past the first login.
-        const authUid = await createAuthUserAsAdmin(email, u.initialPassword);
-        update("users", (prev) => [...prev, { ...u, email, id: uid("u"), authUid, password: undefined, initialPassword: undefined, mustChangePassword: true }]);
+        // New account: no admin-set password anymore — the account is
+        // created via an invite email (create-user Edge Function), and the
+        // person sets their own password from that link. Nothing is ever
+        // admin-known.
+        const authUid = await createAuthUserAsAdmin(email, u.role, u.role === "user" ? u.companyId : null, u.name);
+        update("users", (prev) => [...prev, { ...u, email, id: uid("u"), authUid }]);
         closeForm();
       }
     } catch (err) {
@@ -4530,7 +4563,7 @@ function UsersView({ ctx }) {
             {form.id && <Btn variant="danger" onClick={() => remove(form.id)} disabled={saving}><Trash2 size={15} /> Delete</Btn>}
             <div style={{ flex: 1 }} />
             <Btn variant="ghost" onClick={closeForm} disabled={saving}>Cancel</Btn>
-            <Btn onClick={() => form.name && (form.role !== "user" || form.companyId) && (form.id || (form.initialPassword || "").length >= 6) && save(form)} disabled={saving}>{saving ? "Saving…" : "Save"}</Btn>
+            <Btn onClick={() => form.name && (form.role !== "user" || form.companyId) && save(form)} disabled={saving}>{saving ? "Saving…" : "Save"}</Btn>
           </div>
           {form.id && <div style={{ fontSize: 11, color: T.muted, marginTop: 10 }}>Deleting removes this person's access to the app immediately. Their Firebase sign-in account itself isn't deleted — do that from the Firebase Console if needed.</div>}
         </Sheet>
@@ -4624,13 +4657,9 @@ function UserFields({ form, setForm, companies, dashboards = [] }) {
         )}
       </Field>
       {!form.id && (
-        <Field label="Initial password">
-          <div style={{ display: "flex", gap: 8 }}>
-            <TextInput type="text" value={form.initialPassword || ""} onChange={(e) => setForm({ ...form, initialPassword: e.target.value })} placeholder="At least 6 characters" style={{ flex: 1 }} />
-            <Btn type="button" variant="ghost" small onClick={() => setForm({ ...form, initialPassword: randomPassword() })}>Generate</Btn>
-          </div>
-          <div style={{ fontSize: 11.5, color: T.muted, marginTop: 6 }}>Share this with them however you'd normally communicate — they'll be required to set their own password the moment they first sign in with it.</div>
-        </Field>
+        <div style={{ fontSize: 11.5, color: T.muted, margin: "-6px 0 6px" }}>
+          An invite email is sent to this address once saved — they'll set their own password from that link. Nothing is set here.
+        </div>
       )}
       <Field label="Role">
         <Select value={form.role || "officer"} onChange={(e) => setForm({ ...form, role: e.target.value })}>

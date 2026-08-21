@@ -1,0 +1,15 @@
+-- pams_factory_profiles is the one PAMS table whose primary key isn't
+-- named `id` (it's `factory_id`, matching the 1:1 satellite-on-companies
+-- pattern from DOMAIN_MODEL.md §1). pamsStore.js's generic
+-- getRecord/upsertRecordWithId/etc always query by `id`, which worked
+-- for Firestore (a document's id is structural, not a stored field, so
+-- there was never a column-name question) but breaks here since no `id`
+-- column exists on this one table -- the query errored, silently
+-- swallowed by a .catch() in FactoryProfileTab.jsx, masking it as "no
+-- profile yet" for factories that actually had one (found via live
+-- testing of the Phase 6 rewrite against real migrated data).
+--
+-- A generated column keeps `id` always equal to `factory_id`
+-- automatically, letting the generic pamsStore.js helpers work
+-- unchanged rather than special-casing this one table.
+alter table pams_factory_profiles add column id text generated always as (factory_id) stored;

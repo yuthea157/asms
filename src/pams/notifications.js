@@ -1,22 +1,43 @@
 // pams_notifications — in-app only for v1 (docs/pams/ARCHITECTURE.md §5:
-// email/SMS is a real Cloud Function follow-up, not built here). Uses a
-// real Firestore onSnapshot listener, not polling — the natural fit for
-// "live" in a backend-less app, since Firestore pushes changes to
-// subscribed clients for free.
+// email/SMS is a real Edge Function follow-up, not built here). Uses
+// Supabase Realtime instead of Firestore's onSnapshot.
+//
+// Firestore's onSnapshot fires the FULL current result set on every
+// change; Supabase Realtime's postgres_changes is delta/event-based
+// instead (one INSERT/UPDATE/DELETE at a time) — the simplest correct
+// way to keep the exact same "callback gets the full current list"
+// contract every caller already expects is an initial fetch plus a
+// refetch on any change, rather than hand-patching the list from deltas.
 
-import { collection, onSnapshot, query, where, orderBy } from "firebase/firestore";
-import { db } from "../firebase.js";
+import { supabase } from "../supabase.js";
 import { createRecord, updateRecord } from "./pamsStore.js";
 
 export function subscribeToNotifications(factoryIds, callback) {
   if (!factoryIds || factoryIds.length === 0) { callback([]); return () => {}; }
-  // Firestore's `in` operator caps at 30 values — fine for the realistic
-  // number of factories one account is scoped to (a company user sees
-  // exactly one; admin/manager/officer see all of theirs, but this
-  // listener is only ever mounted for the currently-open factory list on
-  // screen, not the whole org at once).
-  const q = query(collection(db, "pams_notifications"), where("factoryId", "in", factoryIds.slice(0, 30)), orderBy("createdAt", "desc"));
-  return onSnapshot(q, (snap) => callback(snap.docs.map((d) => ({ id: d.id, ...d.data() }))));
+  // Matches the old `in` cap of 30 — still the realistic ceiling for the
+  // factory list one screen's notification bell is ever scoped to.
+  const scopedIds = factoryIds.slice(0, 30);
+
+  const load = async () => {
+    const { data, error } = await supabase
+      .from("pams_notifications")
+      .select("*")
+      .in("factory_id", scopedIds)
+      .order("created_at", { ascending: false });
+    if (error) { callback([]); return; }
+    callback(data.map((row) => ({
+      id: row.id, factoryId: row.factory_id, type: row.type, message: row.message,
+      entityType: row.entity_type, entityId: row.entity_id, read: row.read, createdAt: row.created_at,
+    })));
+  };
+
+  load();
+  const channel = supabase
+    .channel(`pams_notifications_${scopedIds.join("_")}`)
+    .on("postgres_changes", { event: "*", schema: "public", table: "pams_notifications" }, () => load())
+    .subscribe();
+
+  return () => supabase.removeChannel(channel);
 }
 
 export function createNotification({ factoryId, type, message, entityType, entityId }, ctx) {
